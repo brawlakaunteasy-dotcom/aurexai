@@ -94,43 +94,62 @@ def call_chat_stream(model: AiModel, messages, on_token, max_retries=3):
     return {"ok": False, "error": last_error or "AI ulanishi muvaffaqiyatsiz.", "full_text": full_text}
 
 
+OPENROUTER_NAME = "OpenRouter"
+OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_FOLDER = "default"
+
+
+def get_default_service() -> ApiService:
+    """Return (and create if missing) the OpenRouter service."""
+    svc = ApiService.query.filter_by(name=OPENROUTER_NAME).first()
+    if not svc:
+        svc = ApiService(
+            name=OPENROUTER_NAME,
+            base_url=OPENROUTER_BASE,
+            request_format="openrouter",
+            enabled=True,
+        )
+        db.session.add(svc)
+        db.session.commit()
+    return svc
+
+
+def get_default_folder() -> ApiKeyFolder:
+    """Return (and create if missing) the default OpenRouter key folder."""
+    svc = get_default_service()
+    f = ApiKeyFolder.query.filter_by(service_id=svc.id, name=OPENROUTER_FOLDER).first()
+    if not f:
+        f = ApiKeyFolder(service_id=svc.id, name=OPENROUTER_FOLDER)
+        db.session.add(f)
+        db.session.commit()
+    return f
+
+
 def seed_default_provider(default_openrouter_key: str = ""):
-    """Seed an OpenRouter service if none exists."""
-    if ApiService.query.first():
-        return
-    svc = ApiService(
-        name="OpenRouter",
-        base_url="https://openrouter.ai/api/v1",
-        request_format="openrouter",
-        enabled=True,
-    )
-    db.session.add(svc)
-    db.session.flush()
-    folder = ApiKeyFolder(service_id=svc.id, name="default")
-    db.session.add(folder)
-    db.session.flush()
+    """Idempotent: always ensures OpenRouter + default folder exist.
+
+    Adds a few starter models *only* on first install (when there are 0 models).
+    """
+    folder = get_default_folder()
+    svc = folder.service
+
     if default_openrouter_key:
-        db.session.add(ApiKey(folder_id=folder.id, label="bootstrap", secret=default_openrouter_key))
-    # Default models
-    db.session.add(AiModel(
-        display_name="Aurex Lite",
-        model_id="meta-llama/llama-3.1-8b-instruct:free",
-        service_id=svc.id, folder_id=folder.id, min_plan="ODDIY",
-    ))
-    db.session.add(AiModel(
-        display_name="Aurex Pro",
-        model_id="anthropic/claude-3.5-sonnet",
-        service_id=svc.id, folder_id=folder.id, min_plan="PRO",
-    ))
-    db.session.add(AiModel(
-        display_name="Aurex Plus",
-        model_id="openai/gpt-4o",
-        service_id=svc.id, folder_id=folder.id, min_plan="PLUS",
-    ))
-    db.session.add(AiModel(
-        display_name="Aurex Codex",
-        model_id="anthropic/claude-3.5-sonnet",
-        service_id=svc.id, folder_id=folder.id, min_plan="PLUS",
-        is_codex=True,
-    ))
-    db.session.commit()
+        exists = ApiKey.query.filter_by(folder_id=folder.id, secret=default_openrouter_key).first()
+        if not exists:
+            db.session.add(ApiKey(folder_id=folder.id, label="bootstrap", secret=default_openrouter_key))
+            db.session.commit()
+
+    if AiModel.query.count() == 0:
+        starters = [
+            ("Aurex Lite", "deepseek/deepseek-v4-flash:free", "ODDIY", False),
+            ("Aurex Pro",  "anthropic/claude-3.5-sonnet",     "PRO",   False),
+            ("Aurex Plus", "openai/gpt-4o",                   "PLUS",  False),
+            ("Aurex Codex","anthropic/claude-3.5-sonnet",     "PLUS",  True),
+        ]
+        for name, mid, plan, codex in starters:
+            db.session.add(AiModel(
+                display_name=name, model_id=mid,
+                service_id=svc.id, folder_id=folder.id,
+                min_plan=plan, is_codex=codex,
+            ))
+        db.session.commit()

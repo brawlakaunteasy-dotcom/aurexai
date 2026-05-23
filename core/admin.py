@@ -7,6 +7,7 @@ from .db import db
 from .models import (
     User, ApiService, ApiKeyFolder, ApiKey, AiModel, SiteSetting, Chat,
 )
+from . import ai_service
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -193,6 +194,41 @@ def delete_key(kid):
     return jsonify({"ok": True})
 
 
+# --- Simplified OpenRouter key management -----------------------------------
+# Doimiy ulangan OpenRouter — admin faqat key qo'shadi, papka avtomatik.
+@bp.route("/api/openrouter/keys", methods=["GET"])
+@login_required
+@admin_required
+def or_list_keys():
+    folder = ai_service.get_default_folder()
+    keys = ApiKey.query.filter_by(folder_id=folder.id).order_by(ApiKey.id.desc()).all()
+    return jsonify({"ok": True, "folder_id": folder.id, "keys": [
+        {"id": k.id, "label": k.label,
+         "secret_masked": (k.secret[:6] + "..." + k.secret[-4:]) if len(k.secret) > 12 else "***",
+         "enabled": k.enabled, "failures": k.failures or 0,
+         "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None}
+        for k in keys
+    ]})
+
+
+@bp.route("/api/openrouter/keys", methods=["POST"])
+@login_required
+@admin_required
+def or_add_key():
+    d = request.get_json(force=True)
+    secret = (d.get("secret") or "").strip()
+    label = (d.get("label") or "key").strip()
+    if not secret:
+        return jsonify({"ok": False, "error": "API kalit bo'sh."}), 400
+    folder = ai_service.get_default_folder()
+    if ApiKey.query.filter_by(folder_id=folder.id, secret=secret).first():
+        return jsonify({"ok": False, "error": "Bu kalit allaqachon qo'shilgan."}), 400
+    k = ApiKey(folder_id=folder.id, label=label, secret=secret)
+    db.session.add(k)
+    db.session.commit()
+    return jsonify({"ok": True, "id": k.id})
+
+
 # --- AI models ---------------------------------------------------------------
 @bp.route("/api/models", methods=["GET"])
 @login_required
@@ -206,11 +242,24 @@ def list_all_models():
 @admin_required
 def create_model():
     d = request.get_json(force=True)
+    # Auto-pick OpenRouter (default) if not specified — admin only enters
+    # display_name + model_id + min_plan + is_codex.
+    if d.get("service_id") and d.get("folder_id"):
+        service_id = int(d["service_id"])
+        folder_id = int(d["folder_id"])
+    else:
+        folder = ai_service.get_default_folder()
+        service_id = folder.service_id
+        folder_id = folder.id
+
+    if not d.get("display_name") or not d.get("model_id"):
+        return jsonify({"ok": False, "error": "Nom va model_id kiritilishi shart."}), 400
+
     m = AiModel(
-        display_name=d["display_name"],
-        model_id=d["model_id"],
-        service_id=int(d["service_id"]),
-        folder_id=int(d["folder_id"]),
+        display_name=d["display_name"].strip(),
+        model_id=d["model_id"].strip(),
+        service_id=service_id,
+        folder_id=folder_id,
         min_plan=(d.get("min_plan") or "ODDIY").upper(),
         is_codex=bool(d.get("is_codex", False)),
         enabled=bool(d.get("enabled", True)),
