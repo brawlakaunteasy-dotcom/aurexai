@@ -2,7 +2,7 @@
 {% block title %}Codex · {{ SITE_NAME }}{% endblock %}
 {% block body %}
 <header class="topbar">
-  <a href="/" class="glass icon-btn">&larr;</a>
+  <a href="/" class="glass icon-btn" title="Ortga">&larr;</a>
   <div class="brand"><img src="{{ SITE_LOGO }}" class="brand-logo"><span>Codex · {{ SITE_NAME }}</span></div>
   <div class="topbar-right"><button id="themeToggle" class="glass icon-btn">&#9728;/&#9790;</button></div>
 </header>
@@ -11,78 +11,185 @@
   <div class="codex-status glass" id="codexStatus">Yuklanmoqda...</div>
 
   <div id="codexLocked" class="card glass" hidden>
-    <h2>Codex qulflangan</h2>
+    <h2>🔒 Codex qulflangan</h2>
     <p>Codex faqat <b>PLUS</b> tarifida ishlaydi. Tarifni yangilash uchun katalogga o'ting.</p>
     <a href="/catalog" class="neon-btn">Katalogga</a>
   </div>
 
   <section id="codexUnlocked" hidden>
-    <div class="card glass">
-      <h2>1-qadam: GitHub ulash</h2>
-      <p>Codex sizning hisobingizdan repo va Codespace yarata olishi uchun GitHub bilan ulanishi kerak.</p>
+    <!-- 1: GitHub -->
+    <div class="card glass" id="ghCard">
+      <h2>1️⃣ GitHub akkauntni ulash</h2>
+      <p>Codex sizning hisobingizdan haqiqiy <b>repository yaratadi</b>, AI tomonidan generatsiya qilingan kodni o'sha repoga push qiladi va sizga link beradi. Buning uchun GitHub Personal Access Token (PAT) kerak.</p>
       <ol class="tutorial">
-        <li>github.com/settings/tokens dan "Personal Access Token (classic)" yarating.</li>
-        <li>Quyidagi scopelarni tanlang: <code>repo, workflow, codespace, read:user</code>.</li>
-        <li>Tokenni nusxalab oling va pastdagi maydonga joylang.</li>
-        <li>"Ulash" tugmasini bosing — shundan so'ng Codex avtomatik ishlay boshlaydi.</li>
+        <li><a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener"><b>github.com/settings/tokens</b></a> — "Generate new token (classic)" bosing.</li>
+        <li><b>Note</b>: <code>aurex-codex</code></li>
+        <li><b>Expiration</b>: 90 days (yoki No expiration)</li>
+        <li><b>Scopes</b> (tanlang): <code>repo</code>, <code>workflow</code> (xohlasa <code>codespace</code> ham)</li>
+        <li>"Generate token" bosing va <b>tokenni nusxalang</b> (ko'rsatuv bir martalik!)</li>
+        <li>Tokenni pastdagi maydonga yopishtiring va "Ulash" bosing.</li>
       </ol>
       <div class="row">
-        <input id="ghToken" type="password" placeholder="ghp_...">
+        <input id="ghToken" type="password" placeholder="ghp_... yoki github_pat_...">
         <button class="neon-btn" id="ghConnect">Ulash</button>
+      </div>
+      <div id="ghInfo" class="muted" hidden></div>
+    </div>
+
+    <!-- 2: New job -->
+    <div class="card glass" id="jobCard" hidden>
+      <h2>2️⃣ Topshiriq berish</h2>
+      <p>Topshirig'ingizni aniq yozing — Codex AI loyiha tuzilmasini yaratadi va GitHub'ga push qiladi.</p>
+      <textarea id="codexPrompt" placeholder="Misol: 'React + FastAPI bilan TODO sayt yarating, login va saqlash bilan'"></textarea>
+      <div class="row" style="margin-top:8px">
+        <input id="codexRepo" placeholder="Repo nomi (ixtiyoriy, masalan: my-todo)">
+        <button class="neon-btn" id="submitJob">🚀 Codex'ga topshirish</button>
       </div>
     </div>
 
+    <!-- 3: Jobs -->
     <div class="card glass">
-      <h2>2-qadam: Topshiriq berish</h2>
-      <textarea id="codexPrompt" placeholder="Masalan: 'Mahsulot sotuvi uchun React + FastAPI sayt yarating, login + savat + admin panel bilan'"></textarea>
-      <button class="neon-btn full" id="submitJob">Codex'ga topshirish</button>
-    </div>
-
-    <div class="card glass">
-      <h2>Topshiriqlar tarixi</h2>
-      <button class="neon-btn small" id="wipeHistory">Tarixni tozalash</button>
+      <h2>📋 Topshiriqlar tarixi</h2>
+      <div class="row" style="justify-content:space-between">
+        <span class="muted" id="usageInfo"></span>
+        <button class="neon-btn small" id="wipeHistory">Tarixni tozalash</button>
+      </div>
       <div id="jobsList"></div>
     </div>
   </section>
 </main>
 
 <script>
+const $ = (s) => document.querySelector(s);
+
 async function load() {
   const s = await fetch("/codex/api/status").then(r=>r.json());
-  const status = document.getElementById("codexStatus");
+  const status = $("#codexStatus");
   if (!s.unlocked) {
-    document.getElementById("codexLocked").hidden = false;
+    $("#codexLocked").hidden = false;
     status.textContent = s.message;
     return;
   }
-  document.getElementById("codexUnlocked").hidden = false;
+  $("#codexUnlocked").hidden = false;
   const remH = (s.seconds_remaining/3600).toFixed(2);
-  status.innerHTML = `Tarif: <b>${s.plan}</b> · Bugun qolgan: <b>${remH} soat</b>`;
+  status.innerHTML = `Tarif: <b>${s.plan}</b> · Bugun qolgan: <b>${remH} soat</b> ${s.github_connected ? "· ✅ GitHub: <b>" + s.github_username + "</b>" : "· ⚠ GitHub ulanmagan"}`;
+  $("#usageInfo").textContent = `Bugun ishlatilgan: ${(s.seconds_used/60).toFixed(0)} daqiqa / ${(s.seconds_limit/60).toFixed(0)} daqiqa`;
+  if (s.github_connected) {
+    $("#ghCard").hidden = false;
+    $("#jobCard").hidden = false;
+    $("#ghInfo").hidden = false;
+    $("#ghInfo").innerHTML = `Ulangan: <b>${s.github_username}</b>. <a href="#" id="ghDisconnect">Uzish</a>`;
+    document.getElementById("ghDisconnect")?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await fetch("/codex/api/github/disconnect", { method: "POST" });
+      load();
+    });
+  } else {
+    $("#ghCard").hidden = false;
+    $("#jobCard").hidden = true;
+    $("#ghInfo").hidden = true;
+  }
   loadJobs();
 }
+
 async function loadJobs() {
   const j = await fetch("/codex/api/jobs").then(r=>r.json());
-  const html = (j.jobs||[]).map(x=>`<div class="job-item"><b>#${x.id}</b> · ${x.status}<br><small>${x.prompt}</small>${x.repo_url?`<br><a href="${x.repo_url}" target="_blank">${x.repo_url}</a>`:""}</div>`).join("") || "<i>Bo'sh</i>";
+  const html = (j.jobs||[]).map(x => `
+    <div class="job-item">
+      <div class="row" style="justify-content:space-between">
+        <b>#${x.id}</b>
+        <span class="status-badge status-${x.status}">${x.status}</span>
+      </div>
+      <div class="muted" style="margin-top:6px">${escapeHtml(x.prompt)}</div>
+      ${x.repo_url ? `<div style="margin-top:8px"><a href="${x.repo_url}" target="_blank" class="neon-btn small">📦 ${x.repo_url.replace('https://github.com/','')}</a></div>` : ""}
+      ${x.log ? `<details style="margin-top:8px"><summary class="muted">Loglar</summary><pre class="codex-log">${escapeHtml(x.log)}</pre></details>` : ""}
+    </div>
+  `).join("") || "<i class='muted'>Hali topshiriq yo'q</i>";
   document.getElementById("jobsList").innerHTML = html;
 }
+
 document.getElementById("ghConnect").onclick = async () => {
-  const r = await fetch("/codex/api/github/connect", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token:document.getElementById("ghToken").value})});
+  const token = document.getElementById("ghToken").value.trim();
+  if (!token) return alert("Tokenni kiriting");
+  const btn = document.getElementById("ghConnect");
+  btn.disabled = true; btn.textContent = "Tekshirilmoqda...";
+  const r = await fetch("/codex/api/github/connect", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({token})
+  });
   const j = await r.json();
-  alert((j.tutorial||[]).join("\n") || j.error || "OK");
+  btn.disabled = false; btn.textContent = "Ulash";
+  if (j.ok) {
+    document.getElementById("ghToken").value = "";
+    alert("✅ Ulandi: " + j.username);
+    load();
+  } else {
+    alert("❌ " + (j.error || "Xato"));
+  }
 };
+
 document.getElementById("submitJob").onclick = async () => {
   const prompt = document.getElementById("codexPrompt").value.trim();
-  if (!prompt) return;
-  const r = await fetch("/codex/api/jobs", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({prompt})});
+  const repo_name = document.getElementById("codexRepo").value.trim();
+  if (!prompt) return alert("Topshiriqni yozing");
+  const btn = document.getElementById("submitJob");
+  btn.disabled = true; btn.textContent = "Yuborilmoqda...";
+  const r = await fetch("/codex/api/jobs", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({prompt, repo_name})
+  });
   const j = await r.json();
-  alert(j.ok ? "Topshiriq qabul qilindi: #" + j.job_id : j.error);
-  loadJobs();
+  btn.disabled = false; btn.textContent = "🚀 Codex'ga topshirish";
+  if (j.ok) {
+    document.getElementById("codexPrompt").value = "";
+    document.getElementById("codexRepo").value = "";
+    alert("✅ Topshiriq qabul qilindi: #" + j.job_id + ". Tarixdan kuzating.");
+    loadJobs();
+    // poll status every 5s
+    const poll = setInterval(async () => {
+      const r = await fetch(`/codex/api/jobs/${j.job_id}`).then(r=>r.json());
+      loadJobs();
+      if (r.job && (r.job.status === "done" || r.job.status === "error")) {
+        clearInterval(poll);
+        load();
+      }
+    }, 5000);
+  } else {
+    alert("❌ " + (j.error || "Xato"));
+  }
 };
+
 document.getElementById("wipeHistory").onclick = async () => {
   if (!confirm("Codex tarixini tozalashni xohlaysizmi?")) return;
   await fetch("/codex/api/wipe-history", {method:"POST"});
   loadJobs();
 };
+
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+}
+
 load();
 </script>
+
+<style>
+  .status-badge {
+    padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+  }
+  .status-queued, .status-generating, .status-creating-repo, .status-pushing {
+    background: rgba(70,241,255,.12); border-color: rgba(70,241,255,.4); color: #46f1ff;
+    animation: pulseStatus 1.6s ease-in-out infinite;
+  }
+  .status-done { background: rgba(46,229,157,.15); border-color: rgba(46,229,157,.45); color: #2ee59d; }
+  .status-error { background: rgba(255,93,108,.15); border-color: rgba(255,93,108,.45); color: #ff5d6c; }
+  @keyframes pulseStatus { 50% { opacity: .65; } }
+  .codex-log {
+    margin: 6px 0 0; padding: 10px; max-height: 200px; overflow: auto;
+    background: rgba(0,0,0,.35); border-radius: 8px; font-size: 12px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
+  }
+</style>
 {% endblock %}

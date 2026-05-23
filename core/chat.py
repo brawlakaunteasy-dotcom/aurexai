@@ -1,13 +1,14 @@
-"""Chat routes: list / create / send (real-time SSE streaming)."""
+"""Chat routes: list / create / send (real-time SSE streaming) + Collab mode."""
 import json
 import queue
 import threading
+from datetime import datetime, timedelta
 from flask import (
     Blueprint, request, jsonify, Response, stream_with_context, abort, current_app,
 )
 from flask_login import login_required, current_user
 from .db import db
-from .models import Chat, Message, AiModel
+from .models import Chat, Message, AiModel, User
 from . import ai_service, memory
 
 bp = Blueprint("chat", __name__, url_prefix="/api/chat")
@@ -28,22 +29,42 @@ def list_chats():
 @bp.route("/new", methods=["POST"])
 @login_required
 def new_chat():
-    """Create a new chat. Optional: 'model_id' binds the chat to that model
-    immediately. Otherwise the model is bound on the first /send.
+    """Create a chat. Body:
+       { model_id?, is_collab?, model_b_id? }
+       If is_collab=True (and user is PLUS), model_id=A, model_b_id=B.
     """
     data = request.get_json(silent=True) or {}
-    chat = Chat(user_id=current_user.id, title=data.get("title") or "Yangi suhbat")
 
-    raw_mid = data.get("model_id")
-    if raw_mid:
+    is_collab = bool(data.get("is_collab"))
+    if is_collab and current_user.active_plan != "PLUS":
+        return jsonify({"ok": False, "error": "Collab faqat PLUS tarifida."}), 403
+
+    chat = Chat(user_id=current_user.id, title=data.get("title") or "Yangi suhbat",
+                is_collab=is_collab)
+
+    def _resolve(mid):
+        if not mid:
+            return None
         try:
-            mid = int(raw_mid)
+            mid = int(mid)
         except (TypeError, ValueError):
-            mid = None
-        if mid:
-            m = AiModel.query.get(mid)
-            if m and m.enabled and m.allowed_for(current_user.active_plan):
-                chat.model_id = m.id
+            return None
+        m = AiModel.query.get(mid)
+        if m and m.enabled and m.allowed_for(current_user.active_plan):
+            return m
+        return None
+
+    a = _resolve(data.get("model_id"))
+    if a:
+        chat.model_id = a.id
+    if is_collab:
+        b = _resolve(data.get("model_b_id"))
+        if not b:
+            return jsonify({"ok": False, "error": "Collab uchun ikkala model tanlang."}), 400
+        if b.id == (a.id if a else None):
+            return jsonify({"ok": False, "error": "Collab uchun farqli modellar tanlang."}), 400
+        chat.collab_model_b_id = b.id
+
     db.session.add(chat)
     db.session.commit()
     return jsonify({"ok": True, "chat": chat.to_dict()})
@@ -111,6 +132,14 @@ def wipe_all():
     return jsonify({"ok": True})
 
 
+@bp.route("/intro-seen", methods=["POST"])
+@login_required
+def mark_intro_seen():
+    current_user.intro_seen = True
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
 # --- send (real streaming via background thread + queue) --------------------
 @bp.route("/<int:chat_id>/send", methods=["POST"])
 @login_required
@@ -125,36 +154,40 @@ def send_message(chat_id):
     if not content:
         return jsonify({"ok": False, "error": "Bo'sh xabar yuborib bo'lmaydi."}), 400
 
-    # Choose model: chat.model_id wins (locked) → request → first available
+    # Choose model A (locked to chat once set)
     if chat.model_id:
-        model = AiModel.query.get(chat.model_id)
+        model_a = AiModel.query.get(chat.model_id)
     elif requested_model_id:
         try:
-            model = AiModel.query.get(int(requested_model_id))
+            model_a = AiModel.query.get(int(requested_model_id))
         except (TypeError, ValueError):
-            model = None
+            model_a = None
     else:
-        model = AiModel.query.filter_by(enabled=True, is_codex=False).first()
+        model_a = AiModel.query.filter_by(enabled=True, is_codex=False).first()
 
-    if not model or not model.enabled:
+    if not model_a or not model_a.enabled:
         return jsonify({"ok": False, "error": "Model topilmadi yoki o'chirilgan."}), 400
-    if not model.allowed_for(current_user.active_plan):
+    if not model_a.allowed_for(current_user.active_plan):
         return jsonify({"ok": False, "error": "Bu model sizning tarifingizda mavjud emas."}), 403
 
-    # Lock the chat to this model on first message
-    if not chat.model_id:
-        chat.model_id = model.id
+    model_b = AiModel.query.get(chat.collab_model_b_id) if chat.is_collab else None
+    if chat.is_collab and (not model_b or not model_b.enabled):
+        return jsonify({"ok": False, "error": "Collab modeli topilmadi."}), 400
 
-    # Memory check
+    # Lock model on first message
+    if not chat.model_id:
+        chat.model_id = model_a.id
+
+    # Memory check (admins unlimited)
     memory.expire_old(current_user)
-    if not memory.can_write(current_user, len(content.encode("utf-8"))):
+    if not memory.can_write(current_user, len(content.encode("utf-8")), chat):
         return jsonify({
             "ok": False,
             "error": "Xotira limiti to'lgan. Tarifni oshiring yoki suhbatlarni tozalang."
         }), 413
 
     # Save user message
-    user_msg = Message(chat_id=chat.id, role="user", content=content, model=model.model_id)
+    user_msg = Message(chat_id=chat.id, role="user", content=content, model=model_a.model_id)
     db.session.add(user_msg)
     db.session.commit()
     memory.record(current_user, user_msg)
@@ -165,10 +198,8 @@ def send_message(chat_id):
         .order_by(Message.created_at.asc())
         .all()
     )
-    msg_list = [{
-        "role": "system",
-        "content": "Siz AurexAi yordamchisisiz. Foydali, qisqa va o'zbek tilida javob bering."
-    }]
+    sys_prompt = current_app.config.get("SYSTEM_PROMPT", "Siz AurexAi yordamchisisiz.")
+    msg_list = [{"role": "system", "content": sys_prompt}]
     for m in history[-20:]:
         if m.role in ("user", "assistant"):
             msg_list.append({"role": m.role, "content": m.content})
@@ -177,44 +208,99 @@ def send_message(chat_id):
         chat.title = content[:60]
     db.session.commit()
 
-    # Run AI in a background thread; pipe tokens through a queue so the
-    # SSE generator can yield them in real time.
     app = current_app._get_current_object()
     user_id = current_user.id
     chat_id_local = chat.id
-    model_pk = model.id
+    model_a_pk = model_a.id
+    model_b_pk = model_b.id if model_b else None
+    is_collab = chat.is_collab
 
     q: "queue.Queue" = queue.Queue()
     SENTINEL = object()
 
+    def persist_assistant(text, mdl):
+        a = Message(chat_id=chat_id_local, role="assistant",
+                    content=text, model=mdl.model_id)
+        db.session.add(a)
+        db.session.flush()
+        a.size_bytes = len((a.content or "").encode("utf-8"))
+        a.expires_at = datetime.utcnow() + timedelta(days=3)
+        usr = User.query.get(user_id)
+        if usr:
+            usr.memory_used = (usr.memory_used or 0) + a.size_bytes
+        db.session.commit()
+
     def worker():
         with app.app_context():
-            mdl = AiModel.query.get(model_pk)
-            usr = None  # we'll re-fetch user via id in a fresh session if needed
             try:
-                result = ai_service.call_chat_stream(
-                    mdl, msg_list,
-                    on_token=lambda t: q.put({"token": t}),
+                a_mdl = AiModel.query.get(model_a_pk)
+
+                if not is_collab:
+                    # Single-model mode -------------------------------------
+                    result = ai_service.call_chat_stream(
+                        a_mdl, msg_list,
+                        on_token=lambda t: q.put({"token": t}),
+                        on_status=lambda s: q.put({"status": s}),
+                    )
+                    if result["ok"]:
+                        persist_assistant(result["full_text"], a_mdl)
+                        q.put({"done": True})
+                    else:
+                        q.put({"error": result.get("error", "Xato")})
+                    return
+
+                # Collab pipeline ------------------------------------------
+                b_mdl = AiModel.query.get(model_b_pk)
+                q.put({"status": f"🅰 {a_mdl.display_name} tahlil qilmoqda..."})
+                q.put({"author": "A", "name": a_mdl.display_name})
+
+                a_buf = []
+                a_result = ai_service.call_chat_stream(
+                    a_mdl, msg_list,
+                    on_token=lambda t: (a_buf.append(t), q.put({"token": t, "author": "A"})),
                     on_status=lambda s: q.put({"status": s}),
                 )
-                if result["ok"]:
-                    # Persist assistant message
-                    a = Message(chat_id=chat_id_local, role="assistant",
-                                content=result["full_text"], model=mdl.model_id)
-                    db.session.add(a)
-                    db.session.commit()
-                    # Update memory accounting
-                    from .models import User
-                    usr = User.query.get(user_id)
-                    a.size_bytes = len((a.content or "").encode("utf-8"))
-                    from datetime import datetime, timedelta
-                    a.expires_at = datetime.utcnow() + timedelta(days=3)
-                    if usr:
-                        usr.memory_used = (usr.memory_used or 0) + a.size_bytes
-                    db.session.commit()
+                if not a_result["ok"]:
+                    q.put({"error": a_result.get("error", "A modeli xato berdi")})
+                    return
+
+                a_full = a_result["full_text"]
+                persist_assistant(a_full, a_mdl)
+
+                # Hand off to model B
+                q.put({"status": f"🅱 {b_mdl.display_name} kuchaytirmoqda..."})
+                q.put({"author": "B", "name": b_mdl.display_name})
+
+                b_messages = list(msg_list)
+                b_messages.append({
+                    "role": "system",
+                    "content": (
+                        f"Quyida boshqa AI modelining ({a_mdl.display_name}) "
+                        f"foydalanuvchining savoliga bergan dastlabki javobi. "
+                        f"Sizning vazifangiz: shu javobni tekshiring, xatolarini "
+                        f"to'g'rilang, kuchaytiring va to'liqroq yakuniy javob bering. "
+                        f"Stickerlardan ✨ foydalaning va o'zbek tilida yozing."
+                    ),
+                })
+                b_messages.append({
+                    "role": "assistant",
+                    "content": f"[Birinchi tahlil]\n{a_full}",
+                })
+                b_messages.append({
+                    "role": "user",
+                    "content": "Yuqoridagi tahlilni tekshirib, kuchaytirib yakuniy javob bering.",
+                })
+
+                b_result = ai_service.call_chat_stream(
+                    b_mdl, b_messages,
+                    on_token=lambda t: q.put({"token": t, "author": "B"}),
+                    on_status=lambda s: q.put({"status": s}),
+                )
+                if b_result["ok"]:
+                    persist_assistant(b_result["full_text"], b_mdl)
                     q.put({"done": True})
                 else:
-                    q.put({"error": result.get("error", "Xato")})
+                    q.put({"error": b_result.get("error", "B modeli xato berdi")})
             except Exception as e:
                 q.put({"error": str(e)})
             finally:
@@ -223,11 +309,10 @@ def send_message(chat_id):
     threading.Thread(target=worker, daemon=True).start()
 
     def generate():
-        # Tell client an initial keepalive so proxies start flushing
         yield "retry: 10000\n\n"
         while True:
             try:
-                evt = q.get(timeout=300)
+                evt = q.get(timeout=600)
             except queue.Empty:
                 yield f"data: {json.dumps({'error': 'Vaqt tugadi.'})}\n\n"
                 return

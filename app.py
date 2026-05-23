@@ -40,11 +40,23 @@ def _light_migrations():
     """Add new columns to existing SQLite DBs without losing data.
     Idempotent — safe to run on every boot."""
     insp = inspect(db.engine)
-    if "chats" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("chats")}
-        if "model_id" not in cols:
-            with db.engine.begin() as conn:
+    with db.engine.begin() as conn:
+        if "chats" in insp.get_table_names():
+            cols = {c["name"] for c in insp.get_columns("chats")}
+            if "model_id" not in cols:
                 conn.execute(text("ALTER TABLE chats ADD COLUMN model_id INTEGER"))
+            if "is_collab" not in cols:
+                conn.execute(text("ALTER TABLE chats ADD COLUMN is_collab BOOLEAN DEFAULT 0"))
+            if "collab_model_b_id" not in cols:
+                conn.execute(text("ALTER TABLE chats ADD COLUMN collab_model_b_id INTEGER"))
+        if "users" in insp.get_table_names():
+            cols = {c["name"] for c in insp.get_columns("users")}
+            if "github_token" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN github_token VARCHAR(255)"))
+            if "github_username" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN github_username VARCHAR(80)"))
+            if "intro_seen" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN intro_seen BOOLEAN DEFAULT 0"))
 
 
 def create_app():
@@ -97,6 +109,19 @@ def create_app():
             "site_logo": (l.value if l and l.value else app.config["SITE_LOGO"]),
             "admin_telegram": app.config["ADMIN_TELEGRAM"],
             "prices": app.config["SUBSCRIPTION_PRICES"],
+        })
+
+    @app.route("/api/site/stats")
+    def site_stats():
+        from core.models import AiModel
+        users_total = User.query.count()
+        models_total = AiModel.query.filter_by(enabled=True).count()
+        return jsonify({
+            "ok": True,
+            "users_total": users_total,
+            "models_total": models_total,
+            "prices": app.config["SUBSCRIPTION_PRICES"],
+            "site_name": app.config["SITE_NAME"],
         })
 
     with app.app_context():

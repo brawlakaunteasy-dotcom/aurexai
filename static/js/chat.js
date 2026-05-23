@@ -1,18 +1,61 @@
-/* AurexAi main chat — per-chat model locking + 429-aware streaming UI. */
+/* AurexAi main chat:
+   - Per-chat model lock
+   - Collab mode (PLUS): two-stage A → B pipeline
+   - "AI thinking..." animation while waiting for first token
+   - Animated emoji-stickers (CSS bounce on each emoji)
+   - 429-aware status messages
+   - Mobile drawer for sidebar
+   - Memory bar with adaptive units (B/KB/MB/GB) + ∞ for admin
+*/
 (function () {
   let me = null;
-  let currentChat = null;     // {id, model_id, model_name, ...} or null
+  let currentChat = null;
   let models = [];
   let plan = "ODDIY";
+  let collabPending = null; // {a, b} when user clicks "Suhbat boshlash" in collab modal
 
   const $ = (s) => document.querySelector(s);
   const messagesEl = $("#messages");
   const composer = $("#composer");
   const input = $("#composerInput");
   const modelSel = $("#modelSelect");
+  const collabBadge = $("#collabBadge");
   const chatList = $("#chatList");
   const memFill = $("#memoryFill");
   const memText = $("#memoryText");
+  const sidebar = $("#sidebar");
+  const drawerBackdrop = $("#drawerBackdrop");
+
+  const EMOJI_RE = /(\p{Extended_Pictographic}\p{Emoji_Modifier}?\u{FE0F}?(?:\u{200D}\p{Extended_Pictographic}\u{FE0F}?)*)/gu;
+
+  // -------- helpers --------------------------------------------------------
+  function fmtBytes(b) {
+    b = b || 0;
+    if (b < 1024) return b + " B";
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+    if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + " MB";
+    return (b / 1024 / 1024 / 1024).toFixed(2) + " GB";
+  }
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  /** Render text with emojis wrapped in animated sticker spans. Safe: only
+   *  emoji segments use innerHTML. Text segments use textContent.            */
+  function renderWithStickers(node, text) {
+    node.innerHTML = "";
+    let last = 0;
+    const matches = [...text.matchAll(EMOJI_RE)];
+    for (const m of matches) {
+      if (m.index > last) node.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const span = document.createElement("span");
+      span.className = "sticker";
+      span.textContent = m[0];
+      node.appendChild(span);
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) node.appendChild(document.createTextNode(text.slice(last)));
+  }
 
   // -------- bootstrap ------------------------------------------------------
   async function loadMe() {
@@ -38,8 +81,9 @@
       const div = document.createElement("div");
       div.className = "chat-item" + (currentChat && c.id === currentChat.id ? " active" : "");
       div.dataset.id = c.id;
-      div.dataset.modelId = c.model_id || "";
-      const lockIcon = c.model_id
+      const lockIcon = c.is_collab
+        ? `<span class="chat-lock collab-icon" title="Collab: ${escapeHtml(c.model_name || "")} → ${escapeHtml(c.collab_model_b_name || "")}">🔮</span>`
+        : c.model_id
         ? `<span class="chat-lock" title="${escapeHtml(c.model_name || "")}">&#128274;</span>`
         : "";
       div.innerHTML = `<span class="chat-title">${lockIcon}${escapeHtml(c.title || "Suhbat")}</span><span class="x" title="O'chirish">&times;</span>`;
@@ -54,7 +98,10 @@
             }
             loadChats();
           });
-        } else openChat(c.id);
+        } else {
+          openChat(c.id);
+          closeDrawer();
+        }
       });
       chatList.appendChild(div);
     });
@@ -83,11 +130,20 @@
   }
 
   function applyModelLock() {
-    if (currentChat && currentChat.model_id) {
+    if (currentChat && currentChat.is_collab) {
+      collabBadge.hidden = false;
+      collabBadge.textContent = `🔮 ${currentChat.model_name} → ${currentChat.collab_model_b_name}`;
+      modelSel.disabled = true;
+      modelSel.style.display = "none";
+    } else if (currentChat && currentChat.model_id) {
+      collabBadge.hidden = true;
+      modelSel.style.display = "";
       modelSel.value = currentChat.model_id;
       modelSel.disabled = true;
       modelSel.title = "Bu suhbat shu modelga bog'langan";
     } else {
+      collabBadge.hidden = true;
+      modelSel.style.display = "";
       modelSel.disabled = false;
       modelSel.title = "Suhbat uchun model tanlang";
     }
@@ -95,12 +151,17 @@
 
   function updateMemoryBar() {
     if (!me) return;
+    const used = me.memory_used || 0;
+    if (me.is_admin) {
+      memFill.style.width = "0%";
+      memText.textContent = `${fmtBytes(used)} / ∞ · admin`;
+      return;
+    }
     const limits = { ODDIY: 100 * 1024 * 1024, PRO: 500 * 1024 * 1024, PLUS: 1024 * 1024 * 1024 };
     const limit = limits[plan] || limits.ODDIY;
-    const used = me.memory_used || 0;
     const pct = Math.min(100, Math.round((used / limit) * 100));
     memFill.style.width = pct + "%";
-    memText.textContent = `${(used / 1024 / 1024).toFixed(1)} / ${(limit / 1024 / 1024).toFixed(0)} MB · ${plan}`;
+    memText.textContent = `${fmtBytes(used)} / ${fmtBytes(limit)} · ${plan}`;
   }
 
   // -------- auth modal -----------------------------------------------------
@@ -129,14 +190,34 @@
     </div>`;
   }
 
-  function appendMessage(role, content) {
+  function appendMessage(role, content, opts = {}) {
     const wrap = document.createElement("div");
     wrap.className = "msg " + (role === "user" ? "user" : "assistant");
-    wrap.innerHTML = `<div class="avatar"></div><div class="bubble"></div>`;
-    wrap.querySelector(".bubble").textContent = content;
+    if (opts.author) wrap.dataset.author = opts.author;
+    wrap.innerHTML =
+      `<div class="avatar"></div>` +
+      (opts.label ? `<div class="msg-label">${escapeHtml(opts.label)}</div>` : "") +
+      `<div class="bubble"></div>`;
+    const bubble = wrap.querySelector(".bubble");
+    if (role === "assistant") renderWithStickers(bubble, content);
+    else bubble.textContent = content;
     messagesEl.appendChild(wrap);
     messagesEl.scrollTop = messagesEl.scrollHeight;
-    return wrap.querySelector(".bubble");
+    return bubble;
+  }
+
+  function appendThinking(label = "AurexAi o'ylayapti") {
+    const wrap = document.createElement("div");
+    wrap.className = "msg msg-thinking-wrap";
+    wrap.innerHTML = `
+      <div class="avatar"></div>
+      <div class="msg-thinking">
+        <span class="thinking-text">🤖 ${escapeHtml(label)}</span>
+        <span class="dots"><span></span><span></span><span></span></span>
+      </div>`;
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return wrap;
   }
 
   function appendStatus(text) {
@@ -163,11 +244,24 @@
 
   async function ensureChat() {
     if (currentChat && currentChat.id) return currentChat;
+    let body = { model_id: parseInt(modelSel.value) || null };
+    if (collabPending) {
+      body = {
+        is_collab: true,
+        model_id: collabPending.a,
+        model_b_id: collabPending.b,
+      };
+      collabPending = null;
+    }
     const j = await fetch("/api/chat/new", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model_id: parseInt(modelSel.value) || null }),
+      body: JSON.stringify(body),
     }).then((r) => r.json());
+    if (!j.ok) {
+      alert(j.error || "Suhbat yaratib bo'lmadi");
+      throw new Error(j.error);
+    }
     currentChat = j.chat;
     await loadChats();
     applyModelLock();
@@ -176,14 +270,46 @@
 
   // -------- send + stream --------------------------------------------------
   async function streamSend(text, modelId) {
-    const chat = await ensureChat();
+    let chat;
+    try {
+      chat = await ensureChat();
+    } catch (_) {
+      return;
+    }
     appendMessage("user", text);
-    const bubble = appendMessage("assistant", "");
-    const cursor = document.createElement("span");
-    cursor.className = "typing-cursor";
-    bubble.appendChild(cursor);
 
+    // "thinking" placeholder (replaced by first bubble when tokens arrive)
+    let thinkingEl = appendThinking();
+
+    let bubbleA = null;
+    let bubbleB = null;
+    let typedA = "";
+    let typedB = "";
     let statusEl = null;
+
+    function curBubble(author) {
+      if (chat.is_collab) {
+        if (author === "B") {
+          if (!bubbleB) {
+            bubbleB = appendMessage("assistant", "", {
+              author: "B",
+              label: `🅱 ${chat.collab_model_b_name || "Yakuniy javob"}`,
+            });
+          }
+          return bubbleB;
+        }
+        if (!bubbleA) {
+          bubbleA = appendMessage("assistant", "", {
+            author: "A",
+            label: `🅰 ${chat.model_name || "Birinchi tahlil"}`,
+          });
+        }
+        return bubbleA;
+      }
+      if (!bubbleA) bubbleA = appendMessage("assistant", "");
+      return bubbleA;
+    }
+
     function showStatus(msg) {
       if (!statusEl) statusEl = appendStatus(msg);
       else statusEl.textContent = msg;
@@ -194,6 +320,12 @@
         statusEl = null;
       }
     }
+    function clearThinking() {
+      if (thinkingEl) {
+        thinkingEl.remove();
+        thinkingEl = null;
+      }
+    }
 
     const r = await fetch(`/api/chat/${chat.id}/send`, {
       method: "POST",
@@ -202,15 +334,14 @@
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      bubble.textContent = "Xato: " + (j.error || r.statusText);
-      cursor.remove();
+      clearThinking();
+      const b = appendMessage("assistant", "❌ Xato: " + (j.error || r.statusText));
       return;
     }
 
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
-    let typed = "";
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -224,23 +355,35 @@
           const obj = JSON.parse(line);
           if (obj.token) {
             clearStatus();
-            typed += obj.token;
-            bubble.textContent = typed;
-            bubble.appendChild(cursor);
+            clearThinking();
+            const author = obj.author || "A";
+            const bubble = curBubble(author);
+            if (author === "B") {
+              typedB += obj.token;
+              renderWithStickers(bubble, typedB);
+            } else {
+              typedA += obj.token;
+              renderWithStickers(bubble, typedA);
+            }
             messagesEl.scrollTop = messagesEl.scrollHeight;
           } else if (obj.status) {
             showStatus("⏳ " + obj.status);
+          } else if (obj.author && !obj.token) {
+            // explicit handoff marker — pre-create bubble label
+            curBubble(obj.author);
           } else if (obj.error) {
             clearStatus();
-            bubble.textContent = "Xato: " + obj.error;
+            clearThinking();
+            const bubble = curBubble("A");
+            bubble.textContent = "❌ Xato: " + obj.error;
           } else if (obj.done) {
             clearStatus();
-            cursor.remove();
+            clearThinking();
           }
         } catch (_) {}
       }
     }
-    cursor.remove();
+    clearThinking();
     clearStatus();
     await loadChats();
     await loadMe();
@@ -284,6 +427,7 @@
     document.querySelectorAll(".chat-item").forEach((el) => el.classList.remove("active"));
     renderHero();
     applyModelLock();
+    closeDrawer();
   });
 
   // dropdown menu
@@ -314,9 +458,59 @@
     if (e.target.id === "authModal") closeAuthModal();
   });
 
-  function escapeHtml(s) {
-    return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // -------- collab modal --------------------------------------------------
+  $("#collabModeBtn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!me) return openAuthModal("login");
+    if (plan !== "PLUS" && !me.is_admin) {
+      alert("Collab mode faqat PLUS tarifida mavjud.");
+      return;
+    }
+    const a = $("#collabA");
+    const b = $("#collabB");
+    const allowed = models.filter((m) => m.allowed);
+    if (allowed.length < 2) {
+      alert("Collab uchun kamida 2 ta ruxsat etilgan model kerak.");
+      return;
+    }
+    a.innerHTML = b.innerHTML = allowed
+      .map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)} · ${m.min_plan}</option>`)
+      .join("");
+    a.value = allowed[0].id;
+    b.value = allowed[1].id;
+    $("#collabModal").style.display = "grid";
+    $("#dropMenu").classList.remove("open");
+  });
+  $("#collabCancel")?.addEventListener("click", () => ($("#collabModal").style.display = "none"));
+  $("#collabModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "collabModal") $("#collabModal").style.display = "none";
+  });
+  $("#collabStart")?.addEventListener("click", async () => {
+    const a = parseInt($("#collabA").value);
+    const b = parseInt($("#collabB").value);
+    if (!a || !b || a === b) return alert("Ikki farqli model tanlang");
+    collabPending = { a, b };
+    $("#collabModal").style.display = "none";
+    currentChat = null;
+    renderHero();
+    applyModelLock();
+    input.focus();
+    appendStatus(`🔮 Collab tayyor: ${models.find((m) => m.id === a)?.display_name} → ${models.find((m) => m.id === b)?.display_name}. Birinchi xabarni yozing.`);
+  });
+
+  // -------- mobile drawer -------------------------------------------------
+  function openDrawer() {
+    sidebar.classList.add("open");
+    drawerBackdrop.classList.add("open");
   }
+  function closeDrawer() {
+    sidebar.classList.remove("open");
+    drawerBackdrop.classList.remove("open");
+  }
+  $("#drawerBtn")?.addEventListener("click", () =>
+    sidebar.classList.contains("open") ? closeDrawer() : openDrawer(),
+  );
+  drawerBackdrop?.addEventListener("click", closeDrawer);
 
   loadMe();
 })();

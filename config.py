@@ -26,6 +26,15 @@ class Config:
         "PRO":   500 * 1024 * 1024,   # 500 MB
         "PLUS": 1024 * 1024 * 1024,   # 1 GB
     }
+    # Collab chat (PLUS) raises cap to 2 GB
+    COLLAB_MEMORY_LIMIT = 2 * 1024 * 1024 * 1024
+
+    SYSTEM_PROMPT = (
+        "Siz AurexAi yordamchisisiz — do'stona, foydali, qisqa va aniq javob "
+        "bersangiz. Javoblaringizni o'zbek tilida bering. Javoblaringizda "
+        "stickerlardan (emoji 😊✨🚀💡✅) faolroq foydalaning, lekin haddan "
+        "tashqari ko'p bo'lmasin. Kod yozsangiz markdown blokda yozing."
+    )
 
     # Subscription prices (UZS)
     SUBSCRIPTION_PRICES = {

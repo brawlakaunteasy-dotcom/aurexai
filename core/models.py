@@ -18,6 +18,11 @@ class User(UserMixin, db.Model):
     plan_expires_at = db.Column(db.DateTime, nullable=True)
     memory_used = db.Column(db.BigInteger, default=0)            # bytes
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Codex / GitHub integration
+    github_token = db.Column(db.String(255), nullable=True)
+    github_username = db.Column(db.String(80), nullable=True)
+    # First-run intro
+    intro_seen = db.Column(db.Boolean, default=False)
 
     chats = db.relationship("Chat", backref="user", lazy=True, cascade="all, delete-orphan")
 
@@ -44,6 +49,9 @@ class User(UserMixin, db.Model):
             "plan": self.active_plan,
             "plan_expires_at": self.plan_expires_at.isoformat() if self.plan_expires_at else None,
             "memory_used": self.memory_used,
+            "github_username": self.github_username,
+            "github_connected": bool(self.github_token),
+            "intro_seen": bool(self.intro_seen),
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -58,11 +66,16 @@ class Chat(db.Model):
     # Each chat is bound to one AI model. Once set (on first message),
     # all subsequent messages in this chat must use the same model.
     model_id = db.Column(db.Integer, db.ForeignKey("ai_models.id"), nullable=True)
+    # Collab mode (PLUS): 2-stage pipeline. model_id = A (first analyzer),
+    # collab_model_b_id = B (final stronger reviewer/answerer).
+    is_collab = db.Column(db.Boolean, default=False)
+    collab_model_b_id = db.Column(db.Integer, db.ForeignKey("ai_models.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     messages = db.relationship("Message", backref="chat", lazy=True, cascade="all, delete-orphan")
     model = db.relationship("AiModel", foreign_keys=[model_id])
+    model_b = db.relationship("AiModel", foreign_keys=[collab_model_b_id])
 
     def to_dict(self):
         return {
@@ -72,6 +85,9 @@ class Chat(db.Model):
             "is_locked": self.is_locked,
             "model_id": self.model_id,
             "model_name": self.model.display_name if self.model else None,
+            "is_collab": self.is_collab,
+            "collab_model_b_id": self.collab_model_b_id,
+            "collab_model_b_name": self.model_b.display_name if self.model_b else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 

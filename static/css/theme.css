@@ -459,3 +459,168 @@ code { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, m
   0%, 100% { opacity: .65; }
   50%      { opacity: 1; }
 }
+
+
+
+/* ============================================================
+   Updates: stickers, thinking, drawer, collab, labels
+   ============================================================ */
+
+/* Animated emoji "stickers" */
+.sticker {
+  display: inline-block;
+  font-size: 1.15em;
+  margin: 0 1px;
+  transform-origin: 50% 70%;
+  animation: stickerPop .35s cubic-bezier(.2,.9,.2,1.4) backwards,
+             stickerFloat 3.8s ease-in-out infinite;
+  filter: drop-shadow(0 4px 10px rgba(70,241,255,.15));
+  cursor: default;
+}
+@keyframes stickerPop {
+  from { opacity: 0; transform: scale(0.4) rotate(-12deg); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes stickerFloat {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50%      { transform: translateY(-2px) rotate(2deg); }
+}
+.sticker:hover { animation: stickerWiggle .5s ease; }
+@keyframes stickerWiggle {
+  0%, 100% { transform: scale(1) rotate(0); }
+  25% { transform: scale(1.25) rotate(-12deg); }
+  75% { transform: scale(1.25) rotate(12deg); }
+}
+
+/* "AI is thinking..." indicator */
+.msg-thinking-wrap { gap: 12px; }
+.msg-thinking {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 12px 18px;
+  border-radius: 16px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-stroke);
+  color: var(--fg-soft);
+  font-size: 14px;
+}
+.msg-thinking .thinking-text {
+  background: linear-gradient(90deg, var(--fg-soft) 0%, var(--neon-1) 50%, var(--fg-soft) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: thinkSweep 2s linear infinite;
+}
+@keyframes thinkSweep { to { background-position: 200% 0; } }
+.msg-thinking .dots { display: inline-flex; gap: 4px; }
+.msg-thinking .dots span {
+  width: 6px; height: 6px;
+  background: var(--neon-1);
+  border-radius: 50%;
+  animation: thinkPulse 1.2s ease-in-out infinite;
+}
+.msg-thinking .dots span:nth-child(2) { animation-delay: .15s; }
+.msg-thinking .dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes thinkPulse {
+  0%, 100% { transform: scale(.5); opacity: .4; }
+  50%      { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px var(--neon-1); }
+}
+
+/* Author labels (collab) */
+.msg-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .5px;
+  color: var(--fg-soft);
+  margin-bottom: 4px;
+  display: block;
+}
+.msg[data-author="A"] .bubble {
+  border-left: 2px solid var(--neon-1);
+}
+.msg[data-author="B"] .bubble {
+  border-left: 2px solid var(--neon-3);
+  background: linear-gradient(135deg, rgba(70,241,255,.10), rgba(255,92,242,.12));
+}
+.msg[data-author] {
+  flex-direction: column; align-items: flex-start;
+  gap: 2px; max-width: 92%;
+}
+.msg[data-author] .avatar { display: none; }
+
+/* Collab badge in composer */
+.collab-badge {
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(70,241,255,.18), rgba(255,92,242,.18));
+  border: 1px solid rgba(70,241,255,.4);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 0 14px rgba(70,241,255,.2);
+  animation: collabGlow 3s ease-in-out infinite;
+}
+@keyframes collabGlow {
+  50% { box-shadow: 0 0 24px rgba(255,92,242,.35); }
+}
+
+/* Collab modal */
+.collab-modal {
+  width: min(480px, 100%);
+  padding: 26px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.collab-modal h2 { margin: 0 0 4px; font-size: 22px; }
+.collab-modal label { font-size: 13px; color: var(--fg-soft); margin-top: 6px; }
+.collab-modal select.select { width: 100%; padding: 11px 14px; font-size: 14px; }
+.collab-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+
+.chat-lock.collab-icon { font-size: 13px; }
+
+/* Mobile drawer ---------------------------------------------- */
+.drawer-btn { display: none; }
+.drawer-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  z-index: 45;
+  opacity: 0; transition: opacity .25s;
+}
+.drawer-backdrop.open { display: block; opacity: 1; }
+
+@media (max-width: 800px) {
+  .drawer-btn { display: inline-flex; }
+  .layout { grid-template-columns: 1fr; padding: 70px 12px 12px; gap: 0; }
+  .sidebar {
+    display: flex !important;
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    width: 84vw; max-width: 320px;
+    z-index: 55;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    transform: translateX(-105%);
+    transition: transform .3s cubic-bezier(.2,.9,.2,1);
+    padding-top: 70px;
+  }
+  .sidebar.open { transform: none; box-shadow: 30px 0 60px rgba(0,0,0,.5); }
+  .topbar { padding: 10px 12px; }
+  .brand-name { font-size: 14px; }
+  .messages { padding: 14px; }
+  .composer { padding: 10px; }
+  .composer-row { gap: 6px; }
+  .composer .select { font-size: 13px; padding: 8px 10px; flex: 1; min-width: 0; }
+  #adminBtn { padding: 9px 12px; font-size: 12px; }
+  .msg { max-width: 96%; }
+  .hero h2 { font-size: clamp(22px, 6vw, 36px); }
+}
+
+@media (max-width: 480px) {
+  .topbar-right .neon-btn { padding: 8px 10px; font-size: 12px; }
+  .icon-btn { width: 36px; height: 36px; font-size: 16px; }
+  .drop-menu { right: 10px; min-width: 200px; }
+}
+
+/* Better composer arrow icon */
+.send-btn span {
+  display: inline-block; transform: translateY(-1px);
+  font-weight: 700;
+}
