@@ -427,3 +427,35 @@ code { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, m
   .neon-btn, .bg-aurora, .typing-cursor, .loader-bar-fill { animation: none !important; }
   * { transition: none !important; }
 }
+
+
+/* ------ Per-chat model lock + retry status ----------------- */
+.chat-lock {
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 11px;
+  opacity: .7;
+}
+.chat-title { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.chat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.composer .select:disabled {
+  opacity: .85;
+  cursor: not-allowed;
+  border-color: rgba(70, 241, 255, .35);
+}
+
+.msg-status {
+  align-self: center;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-stroke);
+  color: var(--fg-soft);
+  font-size: 13px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: .65; }
+  50%      { opacity: 1; }
+}

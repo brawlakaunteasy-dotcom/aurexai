@@ -55,10 +55,14 @@ class Chat(db.Model):
     title = db.Column(db.String(200), default="Yangi suhbat")
     is_codex = db.Column(db.Boolean, default=False)
     is_locked = db.Column(db.Boolean, default=False)
+    # Each chat is bound to one AI model. Once set (on first message),
+    # all subsequent messages in this chat must use the same model.
+    model_id = db.Column(db.Integer, db.ForeignKey("ai_models.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     messages = db.relationship("Message", backref="chat", lazy=True, cascade="all, delete-orphan")
+    model = db.relationship("AiModel", foreign_keys=[model_id])
 
     def to_dict(self):
         return {
@@ -66,6 +70,8 @@ class Chat(db.Model):
             "title": self.title,
             "is_codex": self.is_codex,
             "is_locked": self.is_locked,
+            "model_id": self.model_id,
+            "model_name": self.model.display_name if self.model else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 

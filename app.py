@@ -1,6 +1,7 @@
 """AurexAi - Flask entrypoint."""
 from flask import Flask, render_template, jsonify, request
 from flask_login import LoginManager, current_user, login_required
+from sqlalchemy import inspect, text
 from config import Config
 from core.db import db
 from core import auth, admin, chat, codex, ai_service
@@ -33,6 +34,17 @@ def _bootstrap_admin(app):
         user.set_password(pw)
         db.session.add(user)
         db.session.commit()
+
+
+def _light_migrations():
+    """Add new columns to existing SQLite DBs without losing data.
+    Idempotent — safe to run on every boot."""
+    insp = inspect(db.engine)
+    if "chats" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("chats")}
+        if "model_id" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE chats ADD COLUMN model_id INTEGER"))
 
 
 def create_app():
@@ -89,6 +101,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _light_migrations()
         _bootstrap_admin(app)
         ai_service.seed_default_provider(app.config["OPENROUTER_API_KEY"])
 
