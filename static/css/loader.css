@@ -1,0 +1,62 @@
+/* ============================================================
+   Loader overlay (4 stages: speed, assets, device, reveal)
+   ============================================================ */
+.loader-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center;
+  padding: 20px;
+  background:
+    radial-gradient(60% 50% at 30% 20%,  rgba(70,241,255,.18), transparent 60%),
+    radial-gradient(50% 50% at 80% 80%,  rgba(255,92,242,.18), transparent 60%),
+    rgba(5, 6, 10, 0.55);
+  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  transition: opacity .5s ease, transform .5s ease;
+}
+.loader-overlay.done { opacity: 0; pointer-events: none; transform: scale(1.02); }
+
+.loader-card {
+  width: min(440px, 92%);
+  padding: 32px 28px;
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
+  border-radius: 24px;
+  animation: loaderPop .6s cubic-bezier(.2,.9,.2,1);
+}
+@keyframes loaderPop { from { opacity: 0; transform: translateY(20px) scale(.96); } to { opacity: 1; transform: none; } }
+
+.loader-logo { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.loader-logo img {
+  width: 64px; height: 64px; border-radius: 18px;
+  filter: drop-shadow(0 0 20px rgba(70,241,255,.55));
+  animation: float 3s ease-in-out infinite;
+}
+.loader-logo h1 {
+  margin: 0; font-size: 28px;
+  background: linear-gradient(120deg, var(--neon-1), var(--neon-3));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+@keyframes float { 50% { transform: translateY(-6px); } }
+
+.loader-bar {
+  width: 100%; height: 10px; border-radius: 99px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid var(--glass-stroke);
+  overflow: hidden;
+}
+.loader-bar-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--neon-1), var(--neon-2), var(--neon-3));
+  background-size: 200% 100%;
+  animation: barShine 2s linear infinite;
+  box-shadow: 0 0 20px rgba(70,241,255,.55);
+  transition: width .3s ease;
+}
+@keyframes barShine { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+
+.loader-percent { font-size: 28px; font-weight: 700; }
+.loader-stage {
+  font-size: 14px; color: var(--fg-soft);
+  min-height: 22px; text-align: center;
+  animation: stageFade .4s ease;
+}
+@keyframes stageFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

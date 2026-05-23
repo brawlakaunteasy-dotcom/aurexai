@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Ro'yxatdan o'tish · {{ SITE_NAME }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">{% endblock %}
+
+{% block body %}
+<div class="auth-wrap">
+  <div class="auth-card glass">
+    <h1 class="pixel-title">Yangi hisob<br>yaratish</h1>
+    <p class="auth-sub">Ma'lumotlaringizni kiriting va bizga qo'shiling!</p>
+
+    <form id="registerForm" class="auth-form">
+      <input name="first_name" type="text" placeholder="Ismingiz" required>
+      <input name="last_name" type="text" placeholder="Familiyangiz" required>
+      <input name="username" type="text" placeholder="Username" required>
+      <input name="email" type="email" placeholder="Elektron pochtangiz" required>
+      <input name="password" type="password" placeholder="Parol" required>
+      <input name="password2" type="password" placeholder="Parolni qaytadan kiriting" required>
+
+      <label class="auth-check terms">
+        <input type="checkbox" required>
+        <span>Men <a class="green-link" href="#">Maxfiylik siyosati</a> va
+          <a class="green-link" href="#">Qoidalar</a> bilan tanishdim va roziman.</span>
+      </label>
+
+      <button class="neon-btn green-btn full" type="submit">RO'YXATDAN O'TISH</button>
+      <div class="auth-error" id="regErr"></div>
+    </form>
+
+    <div class="auth-foot">
+      Hisobingiz bormi? <a href="/login" class="green-link">Kirish</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/auth.js') }}"></script>{% endblock %}

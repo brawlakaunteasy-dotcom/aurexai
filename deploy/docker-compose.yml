@@ -1,0 +1,13 @@
+services:
+  aurexai:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: aurexai:latest
+    container_name: aurexai
+    restart: unless-stopped
+    env_file: ../.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/instance

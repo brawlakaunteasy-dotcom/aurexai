@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Admin · {{ SITE_NAME }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">{% endblock %}
+
+{% block body %}
+<header class="topbar">
+  <a href="/" class="glass icon-btn">&larr;</a>
+  <div class="brand"><img src="{{ SITE_LOGO }}" class="brand-logo"><span>Admin · {{ SITE_NAME }}</span></div>
+  <div class="topbar-right"><button id="themeToggle" class="glass icon-btn">&#9728;/&#9790;</button></div>
+</header>
+
+<main class="admin-wrap">
+  <nav class="admin-tabs glass">
+    <button data-tab="settings" class="active">Sayt sozlamalari</button>
+    <button data-tab="users">Foydalanuvchilar</button>
+    <button data-tab="services">API xizmatlar</button>
+    <button data-tab="keys">API kalitlar</button>
+    <button data-tab="models">Modellar</button>
+  </nav>
+
+  <section class="admin-panel" id="tab-settings">
+    <h2>Sayt</h2>
+    <div class="card glass">
+      <label>Sayt nomi</label>
+      <input id="siteName" type="text">
+      <label>Logo URL</label>
+      <input id="siteLogo" type="text">
+      <label>Admin Telegram username</label>
+      <input id="adminTg" type="text" placeholder="aurex_admin">
+      <button class="neon-btn" id="saveSettings">Saqlash</button>
+    </div>
+  </section>
+
+  <section class="admin-panel" id="tab-users" hidden>
+    <h2>Foydalanuvchilar</h2>
+    <div class="card glass" id="usersTable">Yuklanmoqda...</div>
+  </section>
+
+  <section class="admin-panel" id="tab-services" hidden>
+    <h2>API xizmatlari (provayderlar)</h2>
+    <div class="card glass">
+      <div class="row">
+        <input id="svcName" placeholder="Nom (OpenRouter)">
+        <input id="svcUrl" placeholder="https://openrouter.ai/api/v1">
+        <select id="svcFmt">
+          <option value="openrouter">openrouter</option>
+          <option value="openai">openai</option>
+          <option value="custom">custom</option>
+        </select>
+        <button class="neon-btn" id="addSvc">Qo'shish</button>
+      </div>
+      <div id="servicesList"></div>
+    </div>
+  </section>
+
+  <section class="admin-panel" id="tab-keys" hidden>
+    <h2>API kalit papkalari</h2>
+    <div class="card glass" id="keysPanel">Avval API xizmat tanlang.</div>
+  </section>
+
+  <section class="admin-panel" id="tab-models" hidden>
+    <h2>AI modellar</h2>
+    <div class="card glass">
+      <div class="row">
+        <input id="mdlName" placeholder="Ko'rinadigan nom">
+        <input id="mdlId" placeholder="model_id (masalan: openai/gpt-4o)">
+        <select id="mdlSvc"></select>
+        <select id="mdlFolder"></select>
+        <select id="mdlPlan">
+          <option>ODDIY</option><option>PRO</option><option>PLUS</option>
+        </select>
+        <label class="auth-check"><input type="checkbox" id="mdlCodex"> Codex</label>
+        <button class="neon-btn" id="addModel">Qo'shish</button>
+      </div>
+      <div id="modelsList"></div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin.js') }}"></script>{% endblock %}

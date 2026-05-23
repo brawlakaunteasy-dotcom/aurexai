@@ -1,0 +1,25 @@
+/* Admin panel */
+.admin-wrap {
+  padding: 90px 22px 30px; max-width: 1180px; margin: 0 auto;
+  display: grid; grid-template-columns: 220px 1fr; gap: 18px;
+}
+@media (max-width: 800px) { .admin-wrap { grid-template-columns: 1fr; } }
+.admin-tabs { padding: 12px; display: flex; flex-direction: column; gap: 6px; height: max-content; }
+.admin-tabs button {
+  background: transparent; color: var(--fg);
+  border: 1px solid var(--glass-stroke); border-radius: 12px;
+  padding: 10px 12px; cursor: pointer; text-align: left;
+}
+.admin-tabs button.active { background: rgba(70,241,255,.12); border-color: rgba(70,241,255,.35); }
+.admin-panel .card { padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.admin-panel .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.admin-panel input, .admin-panel select {
+  background: rgba(255,255,255,.06); color: var(--fg);
+  border: 1px solid var(--glass-stroke); border-radius: 12px;
+  padding: 10px 14px; outline: none; flex: 1; font: inherit; min-width: 140px;
+}
+.admin-panel table { width: 100%; border-collapse: collapse; }
+.admin-panel th, .admin-panel td { padding: 8px 10px; border-bottom: 1px solid var(--glass-stroke); text-align: left; font-size: 14px; }
+.admin-panel .item { padding: 10px 12px; border: 1px solid var(--glass-stroke); border-radius: 12px; margin-top: 8px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.danger { color: var(--danger); cursor: pointer; }
+.muted { color: var(--fg-soft); font-size: 12px; }

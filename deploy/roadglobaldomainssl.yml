@@ -1,0 +1,112 @@
+# =============================================================
+#  AurexAi · PRODUCTION + DOMAIN + SSL ROADMAP
+#  Maqsad: aurexai.uz (yoki istalgan domain) ga to'liq HTTPS bilan deploy
+# =============================================================
+#
+#  Quyidagi yo'riqnoma Ubuntu 22.04 / Debian 12 server uchun.
+#  Domeningizni o'z A-record ingiz bilan VPS IP ga yo'naltirib qo'ying.
+# =============================================================
+
+variables:
+  DOMAIN:        "aurexai.uz"
+  SSH_USER:      "root"             # yoki sudo huquqli foydalanuvchi
+  SERVER_IP:     "X.X.X.X"
+  EMAIL:         "owner@aurexai.uz" # Let's Encrypt registratsiya uchun
+  APP_DIR:       "/opt/aurexai"
+  SERVICE_NAME:  "aurexai"
+
+steps:
+
+  - id: 1
+    title: "Domain va serverni tayyorlash"
+    description: |
+      - DNS panelda A-record: aurexai.uz -> SERVER_IP
+      - DNS panelda A-record: www.aurexai.uz -> SERVER_IP
+      - Tarqalishini kuting (1-30 daqiqa). Tekshirish: dig +short aurexai.uz
+
+  - id: 2
+    title: "Serverga ulanish va paketlarni yangilash"
+    commands:
+      - "ssh ${SSH_USER}@${SERVER_IP}"
+      - "apt update && apt -y upgrade"
+      - "apt -y install python3 python3-venv python3-pip git nginx ufw certbot python3-certbot-nginx"
+
+  - id: 3
+    title: "Firewall sozlash"
+    commands:
+      - "ufw allow OpenSSH"
+      - "ufw allow 'Nginx Full'"
+      - "ufw --force enable"
+
+  - id: 4
+    title: "Loyihani serverga olish"
+    commands:
+      - "mkdir -p /opt && cd /opt"
+      - "git clone https://github.com/<sizning-akkaunt>/aurexai.git"
+      - "cd aurexai"
+      - "python3 -m venv .venv"
+      - "source .venv/bin/activate && pip install -r requirements.txt"
+      - "cp .env.example .env"
+      - "# .env ni tahrirlang: FLASK_SECRET_KEY (random), ADMIN_*, OPENROUTER_API_KEY, PUBLIC_DOMAIN=aurexai.uz"
+
+  - id: 5
+    title: "Systemd service yaratish"
+    commands:
+      - "cp deploy/aurexai.service /etc/systemd/system/${SERVICE_NAME}.service"
+      - "systemctl daemon-reload"
+      - "systemctl enable --now ${SERVICE_NAME}"
+      - "systemctl status ${SERVICE_NAME} --no-pager"
+
+  - id: 6
+    title: "Nginx reverse proxy"
+    commands:
+      - "cp deploy/nginx.conf /etc/nginx/sites-available/${DOMAIN}"
+      - "sed -i \"s/aurexai.uz/${DOMAIN}/g\" /etc/nginx/sites-available/${DOMAIN}"
+      - "ln -sf /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN}"
+      - "rm -f /etc/nginx/sites-enabled/default"
+      - "nginx -t && systemctl reload nginx"
+
+  - id: 7
+    title: "SSL Sertifikat (Let's Encrypt)"
+    commands:
+      - "certbot --nginx -d ${DOMAIN} -d www.${DOMAIN} --non-interactive --agree-tos -m ${EMAIL} --redirect"
+      - "systemctl reload nginx"
+
+  - id: 8
+    title: "Avtomatik yangilanish"
+    commands:
+      - "systemctl status certbot.timer --no-pager"
+      - "certbot renew --dry-run"
+    notes:
+      - "Certbot 90-kunlik sertifikatlarni avtomatik yangilaydi (systemd timer)."
+
+  - id: 9
+    title: "Sog'lom holatni tekshirish"
+    commands:
+      - "curl -I https://${DOMAIN}"
+      - "journalctl -u ${SERVICE_NAME} -f"
+
+  - id: 10
+    title: "Yangilanish (re-deploy)"
+    commands:
+      - "cd /opt/aurexai"
+      - "git pull"
+      - "source .venv/bin/activate && pip install -r requirements.txt"
+      - "systemctl restart ${SERVICE_NAME}"
+
+# Alternativ: Docker bilan deploy
+docker_alternative:
+  steps:
+    - "apt -y install docker.io docker-compose-plugin"
+    - "cd /opt/aurexai"
+    - "cp .env.example .env   # va tahrirlang"
+    - "docker compose -f deploy/docker-compose.yml up -d --build"
+    - "# Keyin Nginx + Certbot ni yuqoridagidek ulang (8000 portga proxy)"
+
+troubleshooting:
+  - issue:  "502 Bad Gateway"
+    fix:    "systemctl status aurexai → loglarni ko'ring; .env xato bo'lsa app ko'tarilmaydi."
+  - issue:  "Certbot 'connection refused'"
+    fix:    "DNS to'g'ri ekanligini tekshiring (dig +short ${DOMAIN}). 80 port ufw da ochiq bo'lsin."
+  - issue:  "Mixed content / HTTP yoki HTTPS"
+    fix:    "Brauzer cache'ni tozalang. Nginx config 'X-Forwarded-Proto https' bersin."

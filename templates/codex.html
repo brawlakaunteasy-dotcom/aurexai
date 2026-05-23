@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Codex · {{ SITE_NAME }}{% endblock %}
+{% block body %}
+<header class="topbar">
+  <a href="/" class="glass icon-btn">&larr;</a>
+  <div class="brand"><img src="{{ SITE_LOGO }}" class="brand-logo"><span>Codex · {{ SITE_NAME }}</span></div>
+  <div class="topbar-right"><button id="themeToggle" class="glass icon-btn">&#9728;/&#9790;</button></div>
+</header>
+
+<main class="codex-wrap">
+  <div class="codex-status glass" id="codexStatus">Yuklanmoqda...</div>
+
+  <div id="codexLocked" class="card glass" hidden>
+    <h2>Codex qulflangan</h2>
+    <p>Codex faqat <b>PLUS</b> tarifida ishlaydi. Tarifni yangilash uchun katalogga o'ting.</p>
+    <a href="/catalog" class="neon-btn">Katalogga</a>
+  </div>
+
+  <section id="codexUnlocked" hidden>
+    <div class="card glass">
+      <h2>1-qadam: GitHub ulash</h2>
+      <p>Codex sizning hisobingizdan repo va Codespace yarata olishi uchun GitHub bilan ulanishi kerak.</p>
+      <ol class="tutorial">
+        <li>github.com/settings/tokens dan "Personal Access Token (classic)" yarating.</li>
+        <li>Quyidagi scopelarni tanlang: <code>repo, workflow, codespace, read:user</code>.</li>
+        <li>Tokenni nusxalab oling va pastdagi maydonga joylang.</li>
+        <li>"Ulash" tugmasini bosing — shundan so'ng Codex avtomatik ishlay boshlaydi.</li>
+      </ol>
+      <div class="row">
+        <input id="ghToken" type="password" placeholder="ghp_...">
+        <button class="neon-btn" id="ghConnect">Ulash</button>
+      </div>
+    </div>
+
+    <div class="card glass">
+      <h2>2-qadam: Topshiriq berish</h2>
+      <textarea id="codexPrompt" placeholder="Masalan: 'Mahsulot sotuvi uchun React + FastAPI sayt yarating, login + savat + admin panel bilan'"></textarea>
+      <button class="neon-btn full" id="submitJob">Codex'ga topshirish</button>
+    </div>
+
+    <div class="card glass">
+      <h2>Topshiriqlar tarixi</h2>
+      <button class="neon-btn small" id="wipeHistory">Tarixni tozalash</button>
+      <div id="jobsList"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+async function load() {
+  const s = await fetch("/codex/api/status").then(r=>r.json());
+  const status = document.getElementById("codexStatus");
+  if (!s.unlocked) {
+    document.getElementById("codexLocked").hidden = false;
+    status.textContent = s.message;
+    return;
+  }
+  document.getElementById("codexUnlocked").hidden = false;
+  const remH = (s.seconds_remaining/3600).toFixed(2);
+  status.innerHTML = `Tarif: <b>${s.plan}</b> · Bugun qolgan: <b>${remH} soat</b>`;
+  loadJobs();
+}
+async function loadJobs() {
+  const j = await fetch("/codex/api/jobs").then(r=>r.json());
+  const html = (j.jobs||[]).map(x=>`<div class="job-item"><b>#${x.id}</b> · ${x.status}<br><small>${x.prompt}</small>${x.repo_url?`<br><a href="${x.repo_url}" target="_blank">${x.repo_url}</a>`:""}</div>`).join("") || "<i>Bo'sh</i>";
+  document.getElementById("jobsList").innerHTML = html;
+}
+document.getElementById("ghConnect").onclick = async () => {
+  const r = await fetch("/codex/api/github/connect", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token:document.getElementById("ghToken").value})});
+  const j = await r.json();
+  alert((j.tutorial||[]).join("\n") || j.error || "OK");
+};
+document.getElementById("submitJob").onclick = async () => {
+  const prompt = document.getElementById("codexPrompt").value.trim();
+  if (!prompt) return;
+  const r = await fetch("/codex/api/jobs", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({prompt})});
+  const j = await r.json();
+  alert(j.ok ? "Topshiriq qabul qilindi: #" + j.job_id : j.error);
+  loadJobs();
+};
+document.getElementById("wipeHistory").onclick = async () => {
+  if (!confirm("Codex tarixini tozalashni xohlaysizmi?")) return;
+  await fetch("/codex/api/wipe-history", {method:"POST"});
+  loadJobs();
+};
+load();
+</script>
+{% endblock %}

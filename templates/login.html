@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Kirish · {{ SITE_NAME }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">{% endblock %}
+
+{% block body %}
+<div class="auth-wrap">
+  <div class="auth-card glass">
+    <h1 class="pixel-title">Qaytib kelganingiz<br>bilan!</h1>
+    <p class="auth-sub">Sizni sog'indik! Iltimos, ma'lumotlaringizni kiriting.</p>
+
+    <form id="loginForm" class="auth-form">
+      <label>Email yoki Username</label>
+      <input name="identifier" type="text" autocomplete="username" required>
+
+      <label>Parol</label>
+      <input name="password" type="password" autocomplete="current-password" required>
+
+      <div class="auth-row">
+        <label class="auth-check"><input type="checkbox" name="remember"> Eslab qolish</label>
+        <a href="#" class="forgot">Parolni unutdingizmi?</a>
+      </div>
+
+      <button class="neon-btn green-btn full" type="submit">KIRISH</button>
+      <div class="auth-error" id="loginErr"></div>
+    </form>
+
+    <div class="auth-foot">
+      Hisobingiz yo'qmi? <a href="/register" class="green-link">Ro'yxatdan o'ting</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/auth.js') }}"></script>{% endblock %}

@@ -1,0 +1,74 @@
+# =============================================================
+#  AurexAi · LOCAL DEVELOPMENT ROADMAP
+#  Maqsad: kompyuteringizda http://localhost:8000 da ishga tushirish
+# =============================================================
+
+prerequisites:
+  - "Python 3.11+ (python3 --version)"
+  - "git"
+  - "(ixtiyoriy) virtualenv yaratish uchun python3 -m venv"
+
+steps:
+
+  - id: 1
+    title: "Loyihani olish"
+    commands:
+      - "git clone https://github.com/<sizning-akkaunt>/aurexai.git"
+      - "cd aurexai"
+
+  - id: 2
+    title: "Virtual muhit yaratish"
+    commands:
+      - "python3 -m venv .venv"
+      - "source .venv/bin/activate          # Linux / macOS"
+      - ".venv\\Scripts\\activate           # Windows PowerShell"
+
+  - id: 3
+    title: "Bog'liqliklarni o'rnatish"
+    commands:
+      - "pip install --upgrade pip"
+      - "pip install -r requirements.txt"
+
+  - id: 4
+    title: ".env faylni tayyorlash"
+    commands:
+      - "cp .env.example .env"
+      - "# Tahrirlang: FLASK_SECRET_KEY ni tasodifiy 32-belgilik qiymatga almashtiring"
+      - "# Ixtiyoriy: OPENROUTER_API_KEY ga test kalitingizni qo'ying"
+    notes:
+      - "Default admin: owner@aurexai.uz / BelizardjonAstro (.env dan o'zgartiring!)"
+
+  - id: 5
+    title: "Saytni ishga tushirish (development)"
+    commands:
+      - "python app.py"
+    expected: "http://0.0.0.0:8000 manzilida ishlaydi. Brauzerda http://localhost:8000 ni oching."
+
+  - id: 6
+    title: "(ixtiyoriy) Production-style local"
+    commands:
+      - "gunicorn -w 4 -b 0.0.0.0:8000 app:app"
+
+  - id: 7
+    title: "Birinchi konfiguratsiya"
+    description: |
+      1) http://localhost:8000/login orqali kiring (owner@aurexai.uz / BelizardjonAstro).
+      2) /admin → "API xizmatlar" — OpenRouter avtomatik seed qilingan.
+      3) /admin → "API kalitlar" — `default` papkaga OpenRouter kalitingizni qo'shing.
+      4) /admin → "Modellar" — modellar avtomatik seed qilingan; xohlasangiz qo'shing.
+      5) /admin → "Sayt sozlamalari" — sayt nomi va logo URLini o'zgartiring.
+
+  - id: 8
+    title: "Tekshirish"
+    description: |
+      - Bosh sahifaga kirganda 0%->100% loader ko'rinadi (4 bosqich).
+      - Kirgandan so'ng chap tepada Day/Night, o'ng tepada Admin tugmasi.
+      - Chatga yozib yuborganda model JS streaming bilan animatsiyali javob beradi.
+
+troubleshooting:
+  - issue: "Module Flask not found"
+    fix:   "Virtual muhitni faollashtiring: source .venv/bin/activate"
+  - issue: "Port band"
+    fix:   "python app.py o'rniga: PORT=9000 python app.py va app.py da port=9000 qiling, yoki: lsof -i :8000 va PIDni to'xtating."
+  - issue: "OpenRouter ishlamayapti"
+    fix:   "Admin paneldan API kalit qo'shing va modeldagi folder_id to'g'riligini tekshiring."

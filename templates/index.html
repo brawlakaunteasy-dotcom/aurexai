@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ SITE_NAME }}{% endblock %}
+
+{% block body %}
+<!-- Loader overlay -->
+<div id="loader" class="loader-overlay">
+  <div class="loader-card glass">
+    <div class="loader-logo">
+      <img src="{{ SITE_LOGO }}" alt="logo">
+      <h1>{{ SITE_NAME }}</h1>
+    </div>
+    <div class="loader-bar"><div class="loader-bar-fill" id="loaderFill"></div></div>
+    <div class="loader-percent" id="loaderPercent">0%</div>
+    <div class="loader-stage" id="loaderStage">Tayyorlanmoqda...</div>
+  </div>
+</div>
+
+<!-- Top bar -->
+<header class="topbar">
+  <button id="themeToggle" class="glass icon-btn" title="Rejim">
+    <span class="theme-sun">&#9728;</span>
+    <span class="theme-moon">&#9790;</span>
+  </button>
+  <div class="brand">
+    <img src="{{ SITE_LOGO }}" alt="logo" class="brand-logo">
+    <span class="brand-name">{{ SITE_NAME }}</span>
+  </div>
+  <div class="topbar-right">
+    <button class="glass icon-btn" id="menuBtn" title="Menu">&#8942;</button>
+    <a href="/admin" class="glass neon-btn admin-only" id="adminBtn" style="display:none">Admin panel</a>
+  </div>
+  <div id="dropMenu" class="drop-menu glass">
+    <a href="/catalog">Obunalar (Katalog)</a>
+    <a href="/codex" id="codexLink">Codex</a>
+    <a href="#" id="wipeAllBtn">Barcha suhbatlarni tozalash</a>
+    <a href="#" id="logoutBtn">Chiqish</a>
+  </div>
+</header>
+
+<!-- Main layout -->
+<main class="layout">
+  <aside class="sidebar glass">
+    <button class="neon-btn full" id="newChatBtn">+ Yangi suhbat</button>
+    <div class="chat-list" id="chatList"></div>
+    <div class="memory-bar" id="memoryBar">
+      <div class="memory-label">Xotira</div>
+      <div class="memory-track"><div class="memory-fill" id="memoryFill"></div></div>
+      <div class="memory-text" id="memoryText">0 / 100 MB</div>
+    </div>
+  </aside>
+
+  <section class="chat-area">
+    <div class="messages glass" id="messages">
+      <div class="hero">
+        <h2>Salom, men <span class="grad">{{ SITE_NAME }}</span></h2>
+        <p>Sun'iy intellekt bilan ishlang. Modelni tanlang va savol bering.</p>
+      </div>
+    </div>
+
+    <form class="composer glass" id="composer">
+      <textarea id="composerInput" placeholder="Bugun nimaga yordam beray?" rows="1"></textarea>
+      <div class="composer-row">
+        <select id="modelSelect" class="glass select"></select>
+        <button type="submit" class="neon-btn send-btn" title="Yuborish">
+          <span>&#8593;</span>
+        </button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<!-- Auth modal -->
+<div id="authModal" class="modal-overlay" style="display:none">
+  <div class="modal glass" id="authPanel">
+    <iframe id="authFrame" src=""></iframe>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/loader.js') }}"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}

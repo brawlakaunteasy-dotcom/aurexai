@@ -1,0 +1,102 @@
+"""AurexAi - Flask entrypoint."""
+from flask import Flask, render_template, jsonify, request
+from flask_login import LoginManager, current_user, login_required
+from config import Config
+from core.db import db
+from core import auth, admin, chat, codex, ai_service
+from core.models import User, SiteSetting
+
+
+login_manager = LoginManager()
+login_manager.login_view = "auth.login_page"
+
+
+@login_manager.user_loader
+def load_user(uid):
+    return User.query.get(int(uid))
+
+
+def _bootstrap_admin(app):
+    """Create default admin if not present."""
+    email = app.config["ADMIN_EMAIL"]
+    pw = app.config["ADMIN_PASSWORD"]
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(
+            first_name="Aurex",
+            last_name="Admin",
+            username="owner",
+            email=email,
+            is_admin=True,
+            plan="PLUS",
+        )
+        user.set_password(pw)
+        db.session.add(user)
+        db.session.commit()
+
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+
+    db.init_app(app)
+    login_manager.init_app(app)
+
+    app.register_blueprint(auth.bp)
+    app.register_blueprint(admin.bp)
+    app.register_blueprint(chat.bp)
+    app.register_blueprint(codex.bp)
+
+    @app.context_processor
+    def inject_site():
+        # site_name / site_logo can be overridden by admin via SiteSetting
+        site_name = app.config["SITE_NAME"]
+        site_logo = app.config["SITE_LOGO"]
+        try:
+            n = SiteSetting.query.filter_by(key="site_name").first()
+            if n and n.value:
+                site_name = n.value
+            l = SiteSetting.query.filter_by(key="site_logo").first()
+            if l and l.value:
+                site_logo = l.value
+        except Exception:
+            pass
+        return {
+            "SITE_NAME": site_name,
+            "SITE_LOGO": site_logo,
+            "ADMIN_TELEGRAM": app.config["ADMIN_TELEGRAM"],
+        }
+
+    @app.route("/")
+    def index():
+        return render_template("index.html")
+
+    @app.route("/catalog")
+    def catalog():
+        return render_template("catalog.html")
+
+    @app.route("/api/site")
+    def site_info():
+        n = SiteSetting.query.filter_by(key="site_name").first()
+        l = SiteSetting.query.filter_by(key="site_logo").first()
+        return jsonify({
+            "ok": True,
+            "site_name": (n.value if n and n.value else app.config["SITE_NAME"]),
+            "site_logo": (l.value if l and l.value else app.config["SITE_LOGO"]),
+            "admin_telegram": app.config["ADMIN_TELEGRAM"],
+            "prices": app.config["SUBSCRIPTION_PRICES"],
+        })
+
+    with app.app_context():
+        db.create_all()
+        _bootstrap_admin(app)
+        ai_service.seed_default_provider(app.config["OPENROUTER_API_KEY"])
+
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000, debug=True)

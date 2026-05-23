@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Obunalar · {{ SITE_NAME }}{% endblock %}
+{% block body %}
+<header class="topbar">
+  <a href="/" class="glass icon-btn">&larr;</a>
+  <div class="brand"><img src="{{ SITE_LOGO }}" class="brand-logo"><span>{{ SITE_NAME }} · Katalog</span></div>
+  <div class="topbar-right"><button id="themeToggle" class="glass icon-btn">&#9728;/&#9790;</button></div>
+</header>
+
+<main class="catalog">
+  <h1 class="catalog-title">Obunalar</h1>
+  <p class="catalog-sub">Sizga mos tarifni tanlang. Sotib olish uchun adminga yozing.</p>
+  <div class="plans">
+    <div class="plan glass">
+      <h2>ODDIY</h2>
+      <div class="price">Tekin</div>
+      <ul>
+        <li>Bepul AI modellar</li>
+        <li>100 MB xotira</li>
+        <li>Cheksiz oddiy suhbat</li>
+      </ul>
+      <button class="neon-btn full" disabled>Sizda mavjud</button>
+    </div>
+    <div class="plan glass featured">
+      <h2>PRO</h2>
+      <div class="price">30,000 so'm <span>/oy</span></div>
+      <ul>
+        <li>Pro va oddiy modellar</li>
+        <li>500 MB xotira</li>
+        <li>Tez ulanish</li>
+      </ul>
+      <a class="neon-btn full" id="buyPro">Sotib olish</a>
+    </div>
+    <div class="plan glass">
+      <h2>PLUS</h2>
+      <div class="price">50,000 so'm <span>/oy</span></div>
+      <ul>
+        <li>Barcha modellar</li>
+        <li>1 GB xotira</li>
+        <li>Codex (4 soat/kun)</li>
+      </ul>
+      <a class="neon-btn full" id="buyPlus">Sotib olish</a>
+    </div>
+  </div>
+</main>
+
+<script>
+  fetch("/api/site").then(r=>r.json()).then(s=>{
+    const tg = s.admin_telegram || "aurex_admin";
+    document.getElementById("buyPro").href  = `https://t.me/${tg}?text=PRO%20obunani%20sotib%20olmoqchiman`;
+    document.getElementById("buyPlus").href = `https://t.me/${tg}?text=PLUS%20obunani%20sotib%20olmoqchiman`;
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="uz" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
+  <link rel="icon" href="{{ SITE_LOGO }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/loader.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="bg-aurora"></div>
+  {% block body %}{% endblock %}
+  <script>
+    window.AUREX = {
+      siteName: {{ SITE_NAME|tojson }},
+      adminTelegram: {{ ADMIN_TELEGRAM|tojson }},
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
