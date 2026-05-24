@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from .db import db
 from .models import (
     User, ApiService, ApiKeyFolder, ApiKey, AiModel, SiteSetting, Chat,
+    PaymentRequest,
 )
 from . import ai_service
 
@@ -38,6 +39,8 @@ def get_settings():
     out.setdefault("site_name", current_app.config["SITE_NAME"])
     out.setdefault("site_logo", current_app.config["SITE_LOGO"])
     out.setdefault("admin_telegram", current_app.config["ADMIN_TELEGRAM"])
+    out.setdefault("payment_card", current_app.config["DEFAULT_PAYMENT_CARD"])
+    out.setdefault("payment_card_holder", current_app.config["DEFAULT_PAYMENT_CARD_HOLDER"])
     return jsonify({"ok": True, "settings": out})
 
 
@@ -93,8 +96,8 @@ def wipe_user(user_id):
     return jsonify({"ok": True})
 
 
-# --- API Services ------------------------------------------------------------
-@bp.route("/api/services", methods=["GET"])
+# --- API services / folders --------------------------------------------------
+@bp.route("/api/services")
 @login_required
 @admin_required
 def list_services():
@@ -111,32 +114,6 @@ def list_services():
     return jsonify({"ok": True, "services": out})
 
 
-@bp.route("/api/services", methods=["POST"])
-@login_required
-@admin_required
-def create_service():
-    d = request.get_json(force=True)
-    s = ApiService(
-        name=d["name"], base_url=d["base_url"],
-        request_format=d.get("request_format", "openai"),
-        enabled=bool(d.get("enabled", True)),
-    )
-    db.session.add(s)
-    db.session.commit()
-    return jsonify({"ok": True, "id": s.id})
-
-
-@bp.route("/api/services/<int:sid>", methods=["DELETE"])
-@login_required
-@admin_required
-def delete_service(sid):
-    s = ApiService.query.get_or_404(sid)
-    db.session.delete(s)
-    db.session.commit()
-    return jsonify({"ok": True})
-
-
-# --- API key folders ---------------------------------------------------------
 @bp.route("/api/services/<int:sid>/folders", methods=["POST"])
 @login_required
 @admin_required
@@ -145,7 +122,22 @@ def create_folder(sid):
     f = ApiKeyFolder(service_id=sid, name=name)
     db.session.add(f)
     db.session.commit()
-    return jsonify({"ok": True, "id": f.id})
+    return jsonify({"ok": True, "id": f.id, "name": f.name})
+
+
+@bp.route("/api/folders")
+@login_required
+@admin_required
+def list_folders():
+    out = []
+    for f in ApiKeyFolder.query.all():
+        out.append({
+            "id": f.id, "name": f.name,
+            "service_id": f.service_id,
+            "service": f.service.name if f.service else None,
+            "key_count": len(f.keys),
+        })
+    return jsonify({"ok": True, "folders": out})
 
 
 @bp.route("/api/folders/<int:fid>", methods=["DELETE"])
@@ -164,7 +156,8 @@ def delete_folder(fid):
 def list_keys(fid):
     keys = ApiKey.query.filter_by(folder_id=fid).all()
     return jsonify({"ok": True, "keys": [
-        {"id": k.id, "label": k.label, "secret_masked": k.secret[:6] + "..." + k.secret[-4:],
+        {"id": k.id, "label": k.label,
+         "secret_masked": (k.secret[:6] + "..." + k.secret[-4:]) if len(k.secret) > 12 else "***",
          "enabled": k.enabled, "failures": k.failures}
         for k in keys
     ]})
@@ -173,11 +166,13 @@ def list_keys(fid):
 @bp.route("/api/folders/<int:fid>/keys", methods=["POST"])
 @login_required
 @admin_required
-def add_key(fid):
+def add_key_to_folder(fid):
     d = request.get_json(force=True)
     secret = (d.get("secret") or "").strip()
     if not secret:
         return jsonify({"ok": False, "error": "Kalit bo'sh."}), 400
+    if ApiKey.query.filter_by(folder_id=fid, secret=secret).first():
+        return jsonify({"ok": False, "error": "Bu kalit allaqachon qo'shilgan."}), 400
     k = ApiKey(folder_id=fid, label=d.get("label") or "key", secret=secret)
     db.session.add(k)
     db.session.commit()
@@ -194,8 +189,7 @@ def delete_key(kid):
     return jsonify({"ok": True})
 
 
-# --- Simplified OpenRouter key management -----------------------------------
-# Doimiy ulangan OpenRouter — admin faqat key qo'shadi, papka avtomatik.
+# --- Default OpenRouter shortcut --------------------------------------------
 @bp.route("/api/openrouter/keys", methods=["GET"])
 @login_required
 @admin_required
@@ -229,7 +223,7 @@ def or_add_key():
     return jsonify({"ok": True, "id": k.id})
 
 
-# --- AI models ---------------------------------------------------------------
+# --- AI models --------------------------------------------------------------
 @bp.route("/api/models", methods=["GET"])
 @login_required
 @admin_required
@@ -242,31 +236,31 @@ def list_all_models():
 @admin_required
 def create_model():
     d = request.get_json(force=True)
-    # Auto-pick OpenRouter (default) if not specified — admin only enters
-    # display_name + model_id + min_plan + is_codex.
-    if d.get("service_id") and d.get("folder_id"):
-        service_id = int(d["service_id"])
-        folder_id = int(d["folder_id"])
+    if not d.get("display_name") or not d.get("model_id"):
+        return jsonify({"ok": False, "error": "Nom va model_id kerak."}), 400
+
+    # Folder selection: explicit folder_id wins, else default OpenRouter folder
+    folder_id = d.get("folder_id")
+    if folder_id:
+        folder = ApiKeyFolder.query.get(int(folder_id))
+        if not folder:
+            return jsonify({"ok": False, "error": "API kalit papkasi topilmadi."}), 400
     else:
         folder = ai_service.get_default_folder()
-        service_id = folder.service_id
-        folder_id = folder.id
-
-    if not d.get("display_name") or not d.get("model_id"):
-        return jsonify({"ok": False, "error": "Nom va model_id kiritilishi shart."}), 400
 
     m = AiModel(
         display_name=d["display_name"].strip(),
         model_id=d["model_id"].strip(),
-        service_id=service_id,
-        folder_id=folder_id,
+        service_id=folder.service_id,
+        folder_id=folder.id,
         min_plan=(d.get("min_plan") or "ODDIY").upper(),
         is_codex=bool(d.get("is_codex", False)),
+        is_image_gen=bool(d.get("is_image_gen", False)),
         enabled=bool(d.get("enabled", True)),
     )
     db.session.add(m)
     db.session.commit()
-    return jsonify({"ok": True, "id": m.id})
+    return jsonify({"ok": True, "id": m.id, "model": m.to_dict()})
 
 
 @bp.route("/api/models/<int:mid>", methods=["DELETE"])
@@ -277,3 +271,51 @@ def delete_model(mid):
     db.session.delete(m)
     db.session.commit()
     return jsonify({"ok": True})
+
+
+# --- Payments (admin review) ------------------------------------------------
+@bp.route("/api/payments")
+@login_required
+@admin_required
+def list_payments():
+    status = request.args.get("status")
+    q = PaymentRequest.query.order_by(PaymentRequest.created_at.desc())
+    if status in ("pending", "approved", "rejected"):
+        q = q.filter_by(status=status)
+    return jsonify({"ok": True, "payments": [p.to_dict() for p in q.limit(200).all()]})
+
+
+@bp.route("/api/payments/<int:pid>/approve", methods=["POST"])
+@login_required
+@admin_required
+def approve_payment(pid):
+    p = PaymentRequest.query.get_or_404(pid)
+    if p.status != "pending":
+        return jsonify({"ok": False, "error": "Bu to'lov allaqachon ko'rib chiqilgan."}), 400
+    days = int((request.get_json(silent=True) or {}).get("days") or 30)
+    user = User.query.get(p.user_id)
+    if not user:
+        return jsonify({"ok": False, "error": "Foydalanuvchi topilmadi."}), 400
+    user.plan = p.plan
+    user.plan_expires_at = datetime.utcnow() + timedelta(days=days)
+    p.status = "approved"
+    p.reviewed_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"ok": True, "user": user.to_dict(), "payment": p.to_dict()})
+
+
+@bp.route("/api/payments/<int:pid>/reject", methods=["POST"])
+@login_required
+@admin_required
+def reject_payment(pid):
+    p = PaymentRequest.query.get_or_404(pid)
+    if p.status != "pending":
+        return jsonify({"ok": False, "error": "Bu to'lov allaqachon ko'rib chiqilgan."}), 400
+    reason = (request.get_json(force=True).get("reason") or "").strip()
+    if not reason:
+        return jsonify({"ok": False, "error": "Sababni yozing."}), 400
+    p.status = "rejected"
+    p.reject_reason = reason[:500]
+    p.reviewed_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"ok": True, "payment": p.to_dict()})

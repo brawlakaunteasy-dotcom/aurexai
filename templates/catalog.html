@@ -8,47 +8,241 @@
 </header>
 
 <main class="catalog">
-  <h1 class="catalog-title">Obunalar</h1>
-  <p class="catalog-sub">Sizga mos tarifni tanlang. Sotib olish uchun adminga yozing.</p>
+  <h1 class="catalog-title">💎 Obunalar</h1>
+  <p class="catalog-sub">Sizga mos tarifni tanlang. Sotib olish uchun karta orqali to'lov qiling va chekni yuklang.</p>
+
   <div class="plans">
     <div class="plan glass">
       <h2>ODDIY</h2>
       <div class="price">Tekin</div>
       <ul>
-        <li>Bepul AI modellar</li>
-        <li>100 MB xotira</li>
-        <li>Cheksiz oddiy suhbat</li>
+        <li>🤖 Bepul AI modellar</li>
+        <li>💾 100 MB xotira</li>
+        <li>⚡ 100 kredit / kun</li>
       </ul>
       <button class="neon-btn full" disabled>Sizda mavjud</button>
     </div>
+
     <div class="plan glass featured">
       <h2>PRO</h2>
-      <div class="price">30,000 so'm <span>/oy</span></div>
+      <div class="price">30 000 so'm <span>/oy</span></div>
       <ul>
-        <li>Pro va oddiy modellar</li>
-        <li>500 MB xotira</li>
-        <li>Tez ulanish</li>
+        <li>🚀 Pro va oddiy modellar</li>
+        <li>💾 500 MB xotira</li>
+        <li>⚡ 500 kredit / kun</li>
       </ul>
-      <a class="neon-btn full" id="buyPro">Sotib olish</a>
+      <button class="neon-btn full buy-btn" data-plan="PRO">Sotib olish</button>
     </div>
+
     <div class="plan glass">
       <h2>PLUS</h2>
-      <div class="price">50,000 so'm <span>/oy</span></div>
+      <div class="price">50 000 so'm <span>/oy</span></div>
       <ul>
-        <li>Barcha modellar</li>
-        <li>1 GB xotira</li>
-        <li>Codex (4 soat/kun)</li>
+        <li>👑 Barcha modellar</li>
+        <li>💾 1 GB (Collab: 2 GB)</li>
+        <li>⚡ 1000 kredit / kun</li>
+        <li>🔮 Collab mode</li>
+        <li>🛠 Codex (4 soat/kun)</li>
       </ul>
-      <a class="neon-btn full" id="buyPlus">Sotib olish</a>
+      <button class="neon-btn full buy-btn" data-plan="PLUS">Sotib olish</button>
     </div>
   </div>
+
+  <h2 class="my-payments-title">📋 Mening to'lovlarim</h2>
+  <div class="card glass" id="myPayments"><div class="muted">Yuklanmoqda...</div></div>
 </main>
 
+<!-- Payment modal -->
+<div class="modal-overlay" id="payModal" style="display:none">
+  <div class="modal glass payment-modal">
+    <h2>To'lov · <span id="payPlan">PRO</span></h2>
+    <p class="muted">Quyidagi kartaga ko'rsatilgan summani o'tkazing va chekni yuklang.</p>
+
+    <div class="pay-card">
+      <div class="pay-card-label">Karta raqami</div>
+      <div class="pay-card-num" id="payCardNum">5614 6805 1661 1916</div>
+      <button class="icon-btn pay-copy" id="payCopy" title="Nusxa olish">📋</button>
+    </div>
+    <div class="pay-amount">
+      <span class="muted">To'lov summasi:</span>
+      <b id="payAmount">30 000 so'm</b>
+    </div>
+
+    <div class="pay-step">
+      <b>1.</b> Bank ilovangizdan yuqoridagi kartaga to'lovni amalga oshiring.
+    </div>
+    <div class="pay-step">
+      <b>2.</b> Chekni rasm sifatida (PNG/JPG) saqlang.
+    </div>
+    <div class="pay-step">
+      <b>3.</b> "Tolov qildim" tugmasini bosing va chekni yuklang.
+    </div>
+
+    <div class="pay-dropzone" id="payDropzone" hidden>
+      <input type="file" id="payFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+      <div class="pay-dz-inner">
+        <div class="pay-dz-icon">⬆</div>
+        <div>Chekni shu yerga tashlang yoki <button type="button" class="pay-dz-pick" id="payPick">tanlang</button></div>
+        <div class="muted">PNG / JPG / WEBP · max 10 MB</div>
+      </div>
+      <div id="payPreview" class="pay-preview" hidden></div>
+    </div>
+
+    <textarea id="payNote" placeholder="Izoh (ixtiyoriy: qachon to'ladingiz, qaysi bankdan va h.k.)" rows="2"></textarea>
+
+    <div class="pay-actions">
+      <button class="icon-btn" id="payCancel">Bekor qilish</button>
+      <button class="neon-btn" id="payIPaid">✅ Tolov qildim — chekni yuklash</button>
+      <button class="neon-btn purple-btn" id="paySubmit" hidden>📤 Yuborish</button>
+    </div>
+  </div>
+</div>
+
 <script>
-  fetch("/api/site").then(r=>r.json()).then(s=>{
-    const tg = s.admin_telegram || "aurex_admin";
-    document.getElementById("buyPro").href  = `https://t.me/${tg}?text=PRO%20obunani%20sotib%20olmoqchiman`;
-    document.getElementById("buyPlus").href = `https://t.me/${tg}?text=PLUS%20obunani%20sotib%20olmoqchiman`;
+let currentPlan = "PRO";
+let pendingReceipt = null;  // {url, name}
+let cardNum = "5614 6805 1661 1916";
+let prices = { PRO: 30000, PLUS: 50000 };
+
+function fmtUZS(n) {
+  return n.toLocaleString('en-US').replace(/,/g, ' ') + " so'm";
+}
+
+async function loadInfo() {
+  try {
+    const r = await fetch("/api/payments/info").then(r => r.json());
+    cardNum = r.card || cardNum;
+    prices = r.prices || prices;
+  } catch (e) {}
+}
+
+async function loadMyPayments() {
+  try {
+    const r = await fetch("/api/payments/mine").then(r => r.json());
+    const root = document.getElementById("myPayments");
+    if (!r.ok || !r.payments || !r.payments.length) {
+      root.innerHTML = `<div class="muted">Hali to'lovlar yo'q.</div>`;
+      return;
+    }
+    root.innerHTML = r.payments.map(p => `
+      <div class="payment-row status-${p.status}">
+        <div>
+          <b>${p.plan}</b> · ${fmtUZS(p.amount)}
+          <span class="status-pill status-${p.status}">${({pending:'⏳ Kutilmoqda', approved:'✅ Tasdiqlangan', rejected:'❌ Rad etilgan'})[p.status] || p.status}</span>
+          <div class="muted">${new Date(p.created_at).toLocaleString()}</div>
+          ${p.reject_reason ? `<div class="reject-reason">Sabab: ${p.reject_reason}</div>` : ""}
+        </div>
+        ${p.receipt_url ? `<a href="${p.receipt_url}" target="_blank"><img src="${p.receipt_url}" class="payment-thumb"></a>` : ""}
+      </div>
+    `).join("");
+  } catch (e) {
+    document.getElementById("myPayments").innerHTML = `<div class="muted">Kirish kerak.</div>`;
+  }
+}
+
+function openPayModal(plan) {
+  currentPlan = plan;
+  document.getElementById("payPlan").textContent = plan;
+  document.getElementById("payCardNum").textContent = cardNum;
+  document.getElementById("payAmount").textContent = fmtUZS(prices[plan] || 0);
+  document.getElementById("payNote").value = "";
+  pendingReceipt = null;
+  document.getElementById("payDropzone").hidden = true;
+  document.getElementById("payPreview").hidden = true;
+  document.getElementById("payPreview").innerHTML = "";
+  document.getElementById("payIPaid").hidden = false;
+  document.getElementById("paySubmit").hidden = true;
+  document.getElementById("payModal").style.display = "grid";
+}
+
+function closePayModal() {
+  document.getElementById("payModal").style.display = "none";
+}
+
+document.querySelectorAll(".buy-btn").forEach(b => b.addEventListener("click", async () => {
+  // Require login first
+  const me = await fetch("/api/auth/me").then(r => r.json());
+  if (!me.authenticated) {
+    location.href = "/login?next=/catalog";
+    return;
+  }
+  openPayModal(b.dataset.plan);
+}));
+
+document.getElementById("payCancel").addEventListener("click", closePayModal);
+document.getElementById("payModal").addEventListener("click", (e) => {
+  if (e.target.id === "payModal") closePayModal();
+});
+
+document.getElementById("payCopy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(cardNum.replace(/\s+/g, ""));
+    document.getElementById("payCopy").textContent = "✅";
+    setTimeout(() => document.getElementById("payCopy").textContent = "📋", 1500);
+  } catch (e) {}
+});
+
+document.getElementById("payIPaid").addEventListener("click", () => {
+  document.getElementById("payDropzone").hidden = false;
+  document.getElementById("payIPaid").hidden = true;
+});
+
+const dz = document.getElementById("payDropzone");
+const fileInp = document.getElementById("payFile");
+document.getElementById("payPick").addEventListener("click", () => fileInp.click());
+fileInp.addEventListener("change", () => uploadReceipt(fileInp.files[0]));
+
+dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("over"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+dz.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dz.classList.remove("over");
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) uploadReceipt(f);
+});
+
+async function uploadReceipt(f) {
+  if (!f) return;
+  if (f.size > 10 * 1024 * 1024) return alert("Fayl 10 MB dan katta");
+  const fd = new FormData();
+  fd.append("file", f);
+  const prev = document.getElementById("payPreview");
+  prev.hidden = false;
+  prev.innerHTML = `<div class="muted">⏳ Yuklanmoqda...</div>`;
+  try {
+    const r = await fetch("/api/chat/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    if (!j.ok) { prev.innerHTML = `<div class="muted">❌ ${j.error || "Xato"}</div>`; return; }
+    pendingReceipt = { url: j.url, name: j.name || f.name };
+    prev.innerHTML = `<img src="${j.url}" alt=""><div class="muted">${pendingReceipt.name}</div>`;
+    document.getElementById("paySubmit").hidden = false;
+  } catch (e) {
+    prev.innerHTML = `<div class="muted">❌ Yuklashda xato</div>`;
+  }
+}
+
+document.getElementById("paySubmit").addEventListener("click", async () => {
+  if (!pendingReceipt) return alert("Avval chekni yuklang");
+  const btn = document.getElementById("paySubmit");
+  btn.disabled = true; btn.textContent = "Yuborilmoqda...";
+  const r = await fetch("/api/payments/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      plan: currentPlan,
+      receipt_url: pendingReceipt.url,
+      note: document.getElementById("payNote").value.trim(),
+    }),
   });
+  const j = await r.json();
+  btn.disabled = false; btn.textContent = "📤 Yuborish";
+  if (!j.ok) return alert("❌ " + (j.error || "Xato"));
+  closePayModal();
+  alert("✅ To'lov yuborildi! Admin tasdiqlashi kutilmoqda.");
+  loadMyPayments();
+});
+
+loadInfo();
+loadMyPayments();
 </script>
 {% endblock %}

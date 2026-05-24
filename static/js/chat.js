@@ -1,19 +1,11 @@
-/* AurexAi main chat:
-   - Per-chat model lock
-   - Collab mode (PLUS): two-stage A → B pipeline
-   - "AI thinking..." animation while waiting for first token
-   - Animated emoji-stickers (CSS bounce on each emoji)
-   - 429-aware status messages
-   - Mobile drawer for sidebar
-   - Memory bar with adaptive units (B/KB/MB/GB) + ∞ for admin
-*/
+/* AurexAi main chat (no auto-stickers; credits bar; collab; image upload). */
 (function () {
   let me = null;
   let currentChat = null;
   let models = [];
   let plan = "ODDIY";
-  let collabPending = null; // {a, b} when user clicks "Suhbat boshlash" in collab modal
-  let pendingImage = null;  // {url, name, size} after upload, before send
+  let collabPending = null;
+  let pendingImage = null;
 
   const $ = (s) => document.querySelector(s);
   const messagesEl = $("#messages");
@@ -27,9 +19,6 @@
   const sidebar = $("#sidebar");
   const drawerBackdrop = $("#drawerBackdrop");
 
-  const EMOJI_RE = /(\p{Extended_Pictographic}\p{Emoji_Modifier}?\u{FE0F}?(?:\u{200D}\p{Extended_Pictographic}\u{FE0F}?)*)/gu;
-
-  // -------- helpers --------------------------------------------------------
   function fmtBytes(b) {
     b = b || 0;
     if (b < 1024) return b + " B";
@@ -41,24 +30,7 @@
     return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
 
-  /** Render text with emojis wrapped in animated sticker spans. Safe: only
-   *  emoji segments use innerHTML. Text segments use textContent.            */
-  function renderWithStickers(node, text) {
-    node.innerHTML = "";
-    let last = 0;
-    const matches = [...text.matchAll(EMOJI_RE)];
-    for (const m of matches) {
-      if (m.index > last) node.appendChild(document.createTextNode(text.slice(last, m.index)));
-      const span = document.createElement("span");
-      span.className = "sticker";
-      span.textContent = m[0];
-      node.appendChild(span);
-      last = m.index + m[0].length;
-    }
-    if (last < text.length) node.appendChild(document.createTextNode(text.slice(last)));
-  }
-
-  // -------- bootstrap ------------------------------------------------------
+  // ---- bootstrap ----------------------------------------------------------
   async function loadMe() {
     const r = await fetch("/api/auth/me").then((x) => x.json());
     me = r.authenticated ? r.user : null;
@@ -67,11 +39,30 @@
       if (me.is_admin) document.getElementById("adminBtn").style.display = "inline-flex";
       await loadModels();
       await loadChats();
+      await loadCredits();
       updateMemoryBar();
       applyModelLock();
     } else {
       modelSel.innerHTML = `<option value="">Kirish kerak</option>`;
     }
+  }
+
+  async function loadCredits() {
+    if (!me) return;
+    try {
+      const c = await fetch("/api/chat/credits").then((r) => r.json());
+      const cb = $("#creditFill"), ct = $("#creditText");
+      if (!cb || !ct) return;
+      if (c.is_admin) {
+        cb.style.width = "0%";
+        ct.textContent = `Kredit: ${c.used} / ∞ · admin`;
+        return;
+      }
+      const limit = c.limit || 100;
+      const pct = Math.min(100, Math.round((c.used / limit) * 100));
+      cb.style.width = pct + "%";
+      ct.textContent = `Kredit: ${c.used} / ${limit} · ${c.plan}`;
+    } catch (e) {}
   }
 
   async function loadChats() {
@@ -83,7 +74,7 @@
       div.className = "chat-item" + (currentChat && c.id === currentChat.id ? " active" : "");
       div.dataset.id = c.id;
       const lockIcon = c.is_collab
-        ? `<span class="chat-lock collab-icon" title="Collab: ${escapeHtml(c.model_name || "")} → ${escapeHtml(c.collab_model_b_name || "")}">🔮</span>`
+        ? `<span class="chat-lock collab-icon" title="Collab">🔮</span>`
         : c.model_id
         ? `<span class="chat-lock" title="${escapeHtml(c.model_name || "")}">&#128274;</span>`
         : "";
@@ -121,10 +112,7 @@
       return;
     }
     modelSel.innerHTML = models
-      .map(
-        (m) =>
-          `<option value="${m.id}" ${m.allowed ? "" : "disabled"}>${escapeHtml(m.display_name)} · ${m.min_plan}${m.allowed ? "" : " · qulflangan"}</option>`,
-      )
+      .map((m) => `<option value="${m.id}" ${m.allowed ? "" : "disabled"}>${m.is_image_gen ? "🖼 " : ""}${escapeHtml(m.display_name)} · ${m.min_plan}${m.allowed ? "" : " · qulflangan"}</option>`)
       .join("");
     const firstAllowed = models.find((m) => m.allowed);
     if (firstAllowed) modelSel.value = firstAllowed.id;
@@ -165,10 +153,9 @@
     memText.textContent = `${fmtBytes(used)} / ${fmtBytes(limit)} · ${plan}`;
   }
 
-  // -------- auth modal -----------------------------------------------------
+  // ---- auth modal ---------------------------------------------------------
   function openAuthModal(mode = "login") {
-    const modal = $("#authModal");
-    const frame = $("#authFrame");
+    const modal = $("#authModal"), frame = $("#authFrame");
     frame.src = "/" + mode;
     modal.style.display = "grid";
   }
@@ -183,7 +170,7 @@
     }
   });
 
-  // -------- chat rendering -------------------------------------------------
+  // ---- rendering ----------------------------------------------------------
   function renderHero() {
     messagesEl.innerHTML = `<div class="hero">
       <h2>Salom, men <span class="grad">${escapeHtml(window.AUREX.siteName)}</span></h2>
@@ -191,6 +178,8 @@
     </div>`;
   }
 
+  /** Plain text rendering — NO automatic emoji animation. AI's emojis are
+      shown as-is in the text. */
   function appendMessage(role, content, opts = {}) {
     const wrap = document.createElement("div");
     wrap.className = "msg " + (role === "user" ? "user" : "assistant");
@@ -210,8 +199,7 @@
     }
     if (content) {
       const txt = document.createElement("span");
-      if (role === "assistant") renderWithStickers(txt, content);
-      else txt.textContent = content;
+      txt.textContent = content;
       bubble.appendChild(txt);
     }
     messagesEl.appendChild(wrap);
@@ -232,7 +220,6 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return wrap;
   }
-
   function appendStatus(text) {
     const wrap = document.createElement("div");
     wrap.className = "msg-status";
@@ -259,17 +246,11 @@
     if (currentChat && currentChat.id) return currentChat;
     let body = { model_id: parseInt(modelSel.value) || null };
     if (collabPending) {
-      body = {
-        is_collab: true,
-        model_id: collabPending.a,
-        model_b_id: collabPending.b,
-      };
+      body = { is_collab: true, model_id: collabPending.a, model_b_id: collabPending.b };
       collabPending = null;
     }
     const j = await fetch("/api/chat/new", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     }).then((r) => r.json());
     if (!j.ok) {
       alert(j.error || "Suhbat yaratib bo'lmadi");
@@ -281,7 +262,7 @@
     return currentChat;
   }
 
-  // -------- send + stream --------------------------------------------------
+  // ---- send + stream ------------------------------------------------------
   async function streamSend(text, modelId, imageUrl) {
     let chat;
     try {
@@ -290,65 +271,39 @@
       return;
     }
     appendMessage("user", text, { image_url: imageUrl });
-
-    // "thinking" placeholder (replaced by first bubble when tokens arrive)
     let thinkingEl = appendThinking();
 
-    let bubbleA = null;
-    let bubbleB = null;
-    let typedA = "";
-    let typedB = "";
+    let bubbleA = null, bubbleB = null;
+    let typedA = "", typedB = "";
     let statusEl = null;
 
     function curBubble(author) {
       if (chat.is_collab) {
         if (author === "B") {
-          if (!bubbleB) {
-            bubbleB = appendMessage("assistant", "", {
-              author: "B",
-              label: `🅱 ${chat.collab_model_b_name || "Yakuniy javob"}`,
-            });
-          }
+          if (!bubbleB) bubbleB = appendMessage("assistant", "", { author: "B", label: `🅱 ${chat.collab_model_b_name || "Yakuniy javob"}` });
           return bubbleB;
         }
-        if (!bubbleA) {
-          bubbleA = appendMessage("assistant", "", {
-            author: "A",
-            label: `🅰 ${chat.model_name || "Birinchi tahlil"}`,
-          });
-        }
+        if (!bubbleA) bubbleA = appendMessage("assistant", "", { author: "A", label: `🅰 ${chat.model_name || "Birinchi tahlil"}` });
         return bubbleA;
       }
       if (!bubbleA) bubbleA = appendMessage("assistant", "");
       return bubbleA;
     }
-
     function showStatus(msg) {
       if (!statusEl) statusEl = appendStatus(msg);
       else statusEl.textContent = msg;
     }
-    function clearStatus() {
-      if (statusEl) {
-        statusEl.remove();
-        statusEl = null;
-      }
-    }
-    function clearThinking() {
-      if (thinkingEl) {
-        thinkingEl.remove();
-        thinkingEl = null;
-      }
-    }
+    function clearStatus() { if (statusEl) { statusEl.remove(); statusEl = null; } }
+    function clearThinking() { if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; } }
 
     const r = await fetch(`/api/chat/${chat.id}/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: text, model_id: modelId, image_url: imageUrl || null }),
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       clearThinking();
-      const b = appendMessage("assistant", "❌ Xato: " + (j.error || r.statusText));
+      appendMessage("assistant", "❌ Xato: " + (j.error || r.statusText));
       return;
     }
 
@@ -371,19 +326,19 @@
             clearThinking();
             const author = obj.author || "A";
             const bubble = curBubble(author);
-            if (author === "B") {
-              typedB += obj.token;
-              renderWithStickers(bubble, typedB);
-            } else {
-              typedA += obj.token;
-              renderWithStickers(bubble, typedA);
-            }
+            if (author === "B") { typedB += obj.token; bubble.lastChild.textContent = typedB; }
+            else { typedA += obj.token; bubble.lastChild.textContent = typedA; }
             messagesEl.scrollTop = messagesEl.scrollHeight;
           } else if (obj.status) {
             showStatus("⏳ " + obj.status);
           } else if (obj.author && !obj.token) {
-            // explicit handoff marker — pre-create bubble label
             curBubble(obj.author);
+          } else if (obj.credits_used !== undefined) {
+            // Mini chip showing credits cost for this message
+            const chip = document.createElement("div");
+            chip.className = "credit-chip";
+            chip.textContent = `−${obj.credits_used} kredit (jami: ${obj.credits_total}${obj.credits_limit ? ' / ' + obj.credits_limit : ''})`;
+            messagesEl.appendChild(chip);
           } else if (obj.error) {
             clearStatus();
             clearThinking();
@@ -399,18 +354,15 @@
     clearThinking();
     clearStatus();
     await loadChats();
-    await loadMe();
+    await loadMe();   // refreshes memory + credits
   }
 
-  // -------- events ---------------------------------------------------------
+  // ---- events -------------------------------------------------------------
   composer.addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = input.value.trim();
     if (!text && !pendingImage) return;
-    if (!me) {
-      openAuthModal("login");
-      return;
-    }
+    if (!me) { openAuthModal("login"); return; }
     const img = pendingImage ? pendingImage.url : null;
     input.value = "";
     autosize();
@@ -418,10 +370,7 @@
     streamSend(text, parseInt(modelSel.value) || null, img);
   });
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      composer.requestSubmit();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); composer.requestSubmit(); }
   });
   input.addEventListener("input", autosize);
   function autosize() {
@@ -430,10 +379,7 @@
   }
 
   modelSel.addEventListener("focus", () => {
-    if (!me) {
-      openAuthModal("login");
-      modelSel.blur();
-    }
+    if (!me) { openAuthModal("login"); modelSel.blur(); }
   });
 
   $("#newChatBtn")?.addEventListener("click", () => {
@@ -445,7 +391,6 @@
     closeDrawer();
   });
 
-  // dropdown menu
   $("#menuBtn").addEventListener("click", () => $("#dropMenu").classList.toggle("open"));
   document.addEventListener("click", (e) => {
     if (!e.target.closest("#menuBtn") && !e.target.closest("#dropMenu"))
@@ -463,17 +408,14 @@
   });
   $("#logoutBtn")?.addEventListener("click", async (e) => {
     e.preventDefault();
-    if (me) {
-      await fetch("/api/auth/logout", { method: "POST" });
-    }
+    if (me) await fetch("/api/auth/logout", { method: "POST" });
     location.reload();
   });
-
   $("#authModal").addEventListener("click", (e) => {
     if (e.target.id === "authModal") closeAuthModal();
   });
 
-  // -------- collab modal --------------------------------------------------
+  // ---- collab modal -------------------------------------------------------
   $("#collabModeBtn")?.addEventListener("click", (e) => {
     e.preventDefault();
     if (!me) return openAuthModal("login");
@@ -481,16 +423,11 @@
       alert("Collab mode faqat PLUS tarifida mavjud.");
       return;
     }
-    const a = $("#collabA");
-    const b = $("#collabB");
+    const a = $("#collabA"), b = $("#collabB");
     const allowed = models.filter((m) => m.allowed);
-    if (allowed.length < 2) {
-      alert("Collab uchun kamida 2 ta ruxsat etilgan model kerak.");
-      return;
-    }
+    if (allowed.length < 2) { alert("Collab uchun kamida 2 ta ruxsat etilgan model kerak."); return; }
     a.innerHTML = b.innerHTML = allowed
-      .map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)} · ${m.min_plan}</option>`)
-      .join("");
+      .map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)} · ${m.min_plan}</option>`).join("");
     a.value = allowed[0].id;
     b.value = allowed[1].id;
     $("#collabModal").style.display = "grid";
@@ -501,8 +438,7 @@
     if (e.target.id === "collabModal") $("#collabModal").style.display = "none";
   });
   $("#collabStart")?.addEventListener("click", async () => {
-    const a = parseInt($("#collabA").value);
-    const b = parseInt($("#collabB").value);
+    const a = parseInt($("#collabA").value), b = parseInt($("#collabB").value);
     if (!a || !b || a === b) return alert("Ikki farqli model tanlang");
     collabPending = { a, b };
     $("#collabModal").style.display = "none";
@@ -513,49 +449,31 @@
     appendStatus(`🔮 Collab tayyor: ${models.find((m) => m.id === a)?.display_name} → ${models.find((m) => m.id === b)?.display_name}. Birinchi xabarni yozing.`);
   });
 
-  // -------- mobile drawer -------------------------------------------------
-  function openDrawer() {
-    sidebar.classList.add("open");
-    drawerBackdrop.classList.add("open");
-  }
-  function closeDrawer() {
-    sidebar.classList.remove("open");
-    drawerBackdrop.classList.remove("open");
-  }
+  // ---- mobile drawer ------------------------------------------------------
+  function openDrawer() { sidebar.classList.add("open"); drawerBackdrop.classList.add("open"); }
+  function closeDrawer() { sidebar.classList.remove("open"); drawerBackdrop.classList.remove("open"); }
   $("#drawerBtn")?.addEventListener("click", () =>
-    sidebar.classList.contains("open") ? closeDrawer() : openDrawer(),
-  );
+    sidebar.classList.contains("open") ? closeDrawer() : openDrawer());
   drawerBackdrop?.addEventListener("click", closeDrawer);
 
-  // -------- file / image upload -------------------------------------------
-  const fileBtn = $("#attachBtn");
-  const fileInput = $("#fileInput");
-  const previewEl = $("#attachPreview");
-
+  // ---- file/image upload --------------------------------------------------
+  const fileBtn = $("#attachBtn"), fileInput = $("#fileInput"), previewEl = $("#attachPreview");
   fileBtn?.addEventListener("click", () => {
     if (!me) return openAuthModal("login");
     fileInput.click();
   });
-
   fileInput?.addEventListener("change", async () => {
     const f = fileInput.files[0];
     if (!f) return;
     fileInput.value = "";
-    if (f.size > 10 * 1024 * 1024) {
-      alert("Fayl 10 MB dan katta");
-      return;
-    }
+    if (f.size > 10 * 1024 * 1024) return alert("Fayl 10 MB dan katta");
     showUploading(f.name);
     const fd = new FormData();
     fd.append("file", f);
     try {
       const r = await fetch("/api/chat/upload", { method: "POST", body: fd });
       const j = await r.json();
-      if (!j.ok) {
-        clearPendingImage();
-        alert(j.error || "Yuklashda xato");
-        return;
-      }
+      if (!j.ok) { clearPendingImage(); alert(j.error || "Yuklashda xato"); return; }
       pendingImage = { url: j.url, name: j.name || f.name, size: j.size };
       renderPreview();
       await loadMe();
@@ -564,7 +482,6 @@
       alert("Yuklashda xato: " + e);
     }
   });
-
   function showUploading(name) {
     previewEl.innerHTML = `<div class="attach-chip uploading">⏳ ${escapeHtml(name)}...</div>`;
     previewEl.hidden = false;
@@ -574,10 +491,7 @@
     previewEl.innerHTML = "";
     const chip = document.createElement("div");
     chip.className = "attach-chip";
-    chip.innerHTML = `
-      <img src="${pendingImage.url}" alt="">
-      <span class="attach-name">${escapeHtml(pendingImage.name)}</span>
-      <button type="button" class="attach-x" title="O'chirish">×</button>`;
+    chip.innerHTML = `<img src="${pendingImage.url}" alt=""><span class="attach-name">${escapeHtml(pendingImage.name)}</span><button type="button" class="attach-x" title="O'chirish">×</button>`;
     chip.querySelector(".attach-x").addEventListener("click", clearPendingImage);
     previewEl.appendChild(chip);
     previewEl.hidden = false;

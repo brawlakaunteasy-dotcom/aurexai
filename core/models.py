@@ -21,8 +21,11 @@ class User(UserMixin, db.Model):
     # Codex / GitHub integration
     github_token = db.Column(db.String(255), nullable=True)
     github_username = db.Column(db.String(80), nullable=True)
-    # First-run intro
+    # First-run intro (no longer used by UI, kept for compat)
     intro_seen = db.Column(db.Boolean, default=False)
+    # Daily credit usage (resets every 24h)
+    credits_used_today = db.Column(db.Integer, default=0)
+    credits_window_started_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     chats = db.relationship("Chat", backref="user", lazy=True, cascade="all, delete-orphan")
 
@@ -52,6 +55,7 @@ class User(UserMixin, db.Model):
             "github_username": self.github_username,
             "github_connected": bool(self.github_token),
             "intro_seen": bool(self.intro_seen),
+            "credits_used_today": self.credits_used_today or 0,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -158,6 +162,7 @@ class AiModel(db.Model):
     folder_id = db.Column(db.Integer, db.ForeignKey("api_key_folders.id"), nullable=False)
     min_plan = db.Column(db.String(16), default="ODDIY")          # ODDIY/PRO/PLUS
     is_codex = db.Column(db.Boolean, default=False)
+    is_image_gen = db.Column(db.Boolean, default=False)
     enabled = db.Column(db.Boolean, default=True)
 
     service = db.relationship("ApiService")
@@ -173,8 +178,12 @@ class AiModel(db.Model):
             "display_name": self.display_name,
             "model_id": self.model_id,
             "service": self.service.name if self.service else None,
+            "service_id": self.service_id,
+            "folder_id": self.folder_id,
+            "folder_name": self.folder.name if self.folder else None,
             "min_plan": self.min_plan,
             "is_codex": self.is_codex,
+            "is_image_gen": bool(self.is_image_gen),
             "enabled": self.enabled,
         }
 
@@ -210,3 +219,37 @@ class CodexUsage(db.Model):
         if datetime.utcnow() - self.window_started_at >= timedelta(hours=24):
             self.seconds_used_today = 0
             self.window_started_at = datetime.utcnow()
+
+
+class PaymentRequest(db.Model):
+    """User-submitted subscription payment with a receipt image, awaiting
+    admin review."""
+    __tablename__ = "payment_requests"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    plan = db.Column(db.String(16), nullable=False)        # PRO / PLUS
+    amount = db.Column(db.Integer, nullable=False)         # UZS
+    receipt_url = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(16), default="pending")   # pending/approved/rejected
+    reject_reason = db.Column(db.Text)
+    note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+
+    user = db.relationship("User", backref="payments")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "username": self.user.username if self.user else None,
+            "email": self.user.email if self.user else None,
+            "plan": self.plan,
+            "amount": self.amount,
+            "receipt_url": self.receipt_url,
+            "status": self.status,
+            "reject_reason": self.reject_reason,
+            "note": self.note,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+        }

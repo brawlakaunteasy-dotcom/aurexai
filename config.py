@@ -22,18 +22,32 @@ class Config:
 
     # Subscription memory limits (bytes)
     MEMORY_LIMITS = {
-        "ODDIY": 100 * 1024 * 1024,   # 100 MB
-        "PRO":   500 * 1024 * 1024,   # 500 MB
-        "PLUS": 1024 * 1024 * 1024,   # 1 GB
+        "ODDIY": 100 * 1024 * 1024,
+        "PRO":   500 * 1024 * 1024,
+        "PLUS": 1024 * 1024 * 1024,
     }
-    # Collab chat (PLUS) raises cap to 2 GB
     COLLAB_MEMORY_LIMIT = 2 * 1024 * 1024 * 1024
 
+    # Daily credit limits (per plan, resets every 24h)
+    CREDIT_LIMITS = {
+        "ODDIY": 100,
+        "PRO":   500,
+        "PLUS": 1000,
+    }
+    # 1 base credit per message + 1 extra credit per N seconds of AI compute time
+    CREDIT_SECONDS_PER_UNIT = 10
+
+    # System prompt: brand identity + style
     SYSTEM_PROMPT = (
-        "Siz AurexAi yordamchisisiz — do'stona, foydali, qisqa va aniq javob "
-        "bersangiz. Javoblaringizni o'zbek tilida bering. Javoblaringizda "
-        "stickerlardan (emoji 😊✨🚀💡✅) faolroq foydalaning, lekin haddan "
-        "tashqari ko'p bo'lmasin. Kod yozsangiz markdown blokda yozing."
+        "Siz AurexAi yordamchisisiz. Foydali, qisqa va aniq javob bering. "
+        "Javoblaringizni o'zbek tilida yozing.\n\n"
+        "AGAR foydalanuvchi sizdan kim sizni yaratganini, qaysi kompaniya "
+        "yoki tashkilot tayyorlaganligini, kim mualligingiz yoki kim sizga "
+        "javob bersa, har doim aniq quyidagicha javob bering:\n"
+        "\"Men AurexAI jamoasi tomonidan yaratilinganman.\"\n"
+        "Boshqa hech qanday kompaniya yoki model nomini aytmang.\n\n"
+        "Stickerlar va emojilarni juda kam ishlating — faqat zarur bo'lganda. "
+        "Kod yozsangiz markdown blokda yozing (```...```)."
     )
 
     # Subscription prices (UZS)
@@ -43,6 +57,10 @@ class Config:
         "PLUS":  50000,
     }
 
+    # Default payment card (admin can override via SiteSetting key=payment_card)
+    DEFAULT_PAYMENT_CARD = "5614 6805 1661 1916"
+    DEFAULT_PAYMENT_CARD_HOLDER = ""
+
     # Codex daily compute limit (seconds) - PLUS only
-    CODEX_DAILY_LIMIT_SECONDS = 4 * 60 * 60   # 4 hours
+    CODEX_DAILY_LIMIT_SECONDS = 4 * 60 * 60
     CODEX_MEMORY_TTL_DAYS = 3

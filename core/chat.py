@@ -1,10 +1,11 @@
-"""Chat routes: list / create / send (real-time SSE streaming) + Collab mode."""
+"""Chat routes: list / create / send (real-time SSE streaming) + Collab + credits."""
 import base64
 import json
 import mimetypes
 import os
 import queue
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta
 from flask import (
@@ -14,7 +15,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from .db import db
 from .models import Chat, Message, AiModel, User
-from . import ai_service, memory
+from . import ai_service, memory, credits
 
 bp = Blueprint("chat", __name__, url_prefix="/api/chat")
 
@@ -36,10 +37,7 @@ def list_chats():
 @bp.route("/new", methods=["POST"])
 @login_required
 def new_chat():
-    """Create a chat. Body:
-       { model_id?, is_collab?, model_b_id? }
-       If is_collab=True (and user is PLUS), model_id=A, model_b_id=B.
-    """
+    """Create a chat. Body: { model_id?, is_collab?, model_b_id? }"""
     data = request.get_json(silent=True) or {}
 
     is_collab = bool(data.get("is_collab"))
@@ -147,7 +145,28 @@ def mark_intro_seen():
     return jsonify({"ok": True})
 
 
-# --- file upload (images) ---------------------------------------------------
+@bp.route("/credits")
+@login_required
+def my_credits():
+    """Current credit usage + remaining + reset time."""
+    credits.reset_if_needed(current_user)
+    plan = current_user.active_plan
+    limit = credits.get_limit(current_user)
+    used = current_user.credits_used_today or 0
+    started = current_user.credits_window_started_at or datetime.utcnow()
+    resets_at = started + timedelta(hours=24)
+    return jsonify({
+        "ok": True,
+        "plan": plan,
+        "limit": limit if limit != float("inf") else None,
+        "used": used,
+        "remaining": (limit - used) if limit != float("inf") else None,
+        "is_admin": current_user.is_admin,
+        "resets_at": resets_at.isoformat(),
+    })
+
+
+# --- file upload (images / receipts) ----------------------------------------
 @bp.route("/upload", methods=["POST"])
 @login_required
 def upload_file():
@@ -187,12 +206,9 @@ def upload_file():
 
 
 def _build_user_content(text, image_url):
-    """For OpenRouter vision: build content array if image is attached.
-    Returns either a string (plain text) or a list of content parts."""
+    """Build OpenRouter vision content array if image is attached."""
     if not image_url:
         return text or ""
-
-    # Convert local /uploads/... path to data URL for the AI
     url = image_url
     if image_url.startswith("/uploads/"):
         try:
@@ -204,8 +220,7 @@ def _build_user_content(text, image_url):
             b64 = base64.b64encode(data).decode("ascii")
             url = f"data:{mime};base64,{b64}"
         except Exception:
-            pass  # fall back to relative URL (may fail on AI side)
-
+            pass
     return [
         {"type": "text", "text": text or ""},
         {"type": "image_url", "image_url": {"url": url}},
@@ -227,7 +242,16 @@ def send_message(chat_id):
     if not content and not image_url:
         return jsonify({"ok": False, "error": "Bo'sh xabar yuborib bo'lmaydi."}), 400
 
-    # Choose model A (locked to chat once set)
+    # Daily credit check (admin unlimited)
+    credits.reset_if_needed(current_user)
+    if not credits.can_spend(current_user, 1):
+        return jsonify({
+            "ok": False,
+            "error": f"Bugungi {credits.get_limit(current_user)} kredit limiti tugadi. "
+                     f"24 soatdan so'ng yangilanadi yoki tarifni oshiring."
+        }), 429
+
+    # Choose model A
     if chat.model_id:
         model_a = AiModel.query.get(chat.model_id)
     elif requested_model_id:
@@ -247,11 +271,9 @@ def send_message(chat_id):
     if chat.is_collab and (not model_b or not model_b.enabled):
         return jsonify({"ok": False, "error": "Collab modeli topilmadi."}), 400
 
-    # Lock model on first message
     if not chat.model_id:
         chat.model_id = model_a.id
 
-    # Memory check (admins unlimited)
     memory.expire_old(current_user)
     if not memory.can_write(current_user, len(content.encode("utf-8")), chat):
         return jsonify({
@@ -259,14 +281,13 @@ def send_message(chat_id):
             "error": "Xotira limiti to'lgan. Tarifni oshiring yoki suhbatlarni tozalang."
         }), 413
 
-    # Save user message
     user_msg = Message(chat_id=chat.id, role="user", content=content,
                        model=model_a.model_id, image_url=image_url)
     db.session.add(user_msg)
     db.session.commit()
     memory.record(current_user, user_msg)
 
-    # Build context (last 20 messages)
+    # Build context (last 20)
     history = (
         Message.query.filter_by(chat_id=chat.id)
         .order_by(Message.created_at.asc())
@@ -307,11 +328,11 @@ def send_message(chat_id):
 
     def worker():
         with app.app_context():
+            t0 = time.time()
             try:
                 a_mdl = AiModel.query.get(model_a_pk)
 
                 if not is_collab:
-                    # Single-model mode -------------------------------------
                     result = ai_service.call_chat_stream(
                         a_mdl, msg_list,
                         on_token=lambda t: q.put({"token": t}),
@@ -319,63 +340,69 @@ def send_message(chat_id):
                     )
                     if result["ok"]:
                         persist_assistant(result["full_text"], a_mdl)
-                        q.put({"done": True})
                     else:
                         q.put({"error": result.get("error", "Xato")})
-                    return
-
-                # Collab pipeline ------------------------------------------
-                b_mdl = AiModel.query.get(model_b_pk)
-                q.put({"status": f"🅰 {a_mdl.display_name} tahlil qilmoqda..."})
-                q.put({"author": "A", "name": a_mdl.display_name})
-
-                a_buf = []
-                a_result = ai_service.call_chat_stream(
-                    a_mdl, msg_list,
-                    on_token=lambda t: (a_buf.append(t), q.put({"token": t, "author": "A"})),
-                    on_status=lambda s: q.put({"status": s}),
-                )
-                if not a_result["ok"]:
-                    q.put({"error": a_result.get("error", "A modeli xato berdi")})
-                    return
-
-                a_full = a_result["full_text"]
-                persist_assistant(a_full, a_mdl)
-
-                # Hand off to model B
-                q.put({"status": f"🅱 {b_mdl.display_name} kuchaytirmoqda..."})
-                q.put({"author": "B", "name": b_mdl.display_name})
-
-                b_messages = list(msg_list)
-                b_messages.append({
-                    "role": "system",
-                    "content": (
-                        f"Quyida boshqa AI modelining ({a_mdl.display_name}) "
-                        f"foydalanuvchining savoliga bergan dastlabki javobi. "
-                        f"Sizning vazifangiz: shu javobni tekshiring, xatolarini "
-                        f"to'g'rilang, kuchaytiring va to'liqroq yakuniy javob bering. "
-                        f"Stickerlardan ✨ foydalaning va o'zbek tilida yozing."
-                    ),
-                })
-                b_messages.append({
-                    "role": "assistant",
-                    "content": f"[Birinchi tahlil]\n{a_full}",
-                })
-                b_messages.append({
-                    "role": "user",
-                    "content": "Yuqoridagi tahlilni tekshirib, kuchaytirib yakuniy javob bering.",
-                })
-
-                b_result = ai_service.call_chat_stream(
-                    b_mdl, b_messages,
-                    on_token=lambda t: q.put({"token": t, "author": "B"}),
-                    on_status=lambda s: q.put({"status": s}),
-                )
-                if b_result["ok"]:
-                    persist_assistant(b_result["full_text"], b_mdl)
-                    q.put({"done": True})
+                        return
                 else:
-                    q.put({"error": b_result.get("error", "B modeli xato berdi")})
+                    b_mdl = AiModel.query.get(model_b_pk)
+                    q.put({"status": f"🅰 {a_mdl.display_name} tahlil qilmoqda..."})
+                    q.put({"author": "A", "name": a_mdl.display_name})
+
+                    a_buf = []
+                    a_result = ai_service.call_chat_stream(
+                        a_mdl, msg_list,
+                        on_token=lambda t: (a_buf.append(t), q.put({"token": t, "author": "A"})),
+                        on_status=lambda s: q.put({"status": s}),
+                    )
+                    if not a_result["ok"]:
+                        q.put({"error": a_result.get("error", "A modeli xato berdi")})
+                        return
+                    a_full = a_result["full_text"]
+                    persist_assistant(a_full, a_mdl)
+
+                    q.put({"status": f"🅱 {b_mdl.display_name} kuchaytirmoqda..."})
+                    q.put({"author": "B", "name": b_mdl.display_name})
+
+                    b_messages = list(msg_list)
+                    b_messages.append({
+                        "role": "system",
+                        "content": (
+                            f"Quyida boshqa AI modelining ({a_mdl.display_name}) "
+                            f"foydalanuvchining savoliga bergan dastlabki javobi. "
+                            f"Sizning vazifangiz: shu javobni tekshiring, xatolarini "
+                            f"to'g'rilang va yakuniy javob bering. O'zbek tilida yozing."
+                        ),
+                    })
+                    b_messages.append({
+                        "role": "assistant",
+                        "content": f"[Birinchi tahlil]\n{a_full}",
+                    })
+                    b_messages.append({
+                        "role": "user",
+                        "content": "Yuqoridagi tahlilni tekshirib, kuchaytirib yakuniy javob bering.",
+                    })
+
+                    b_result = ai_service.call_chat_stream(
+                        b_mdl, b_messages,
+                        on_token=lambda t: q.put({"token": t, "author": "B"}),
+                        on_status=lambda s: q.put({"status": s}),
+                    )
+                    if b_result["ok"]:
+                        persist_assistant(b_result["full_text"], b_mdl)
+                    else:
+                        q.put({"error": b_result.get("error", "B modeli xato berdi")})
+                        return
+
+                # Charge credits based on elapsed time
+                elapsed = time.time() - t0
+                cost = credits.cost_for(elapsed)
+                usr = User.query.get(user_id)
+                if usr:
+                    credits.spend(usr, cost)
+                    q.put({"credits_used": cost, "credits_total": usr.credits_used_today,
+                           "credits_limit": (None if usr.is_admin
+                                             else current_app.config["CREDIT_LIMITS"].get(usr.active_plan, 100))})
+                q.put({"done": True})
             except Exception as e:
                 q.put({"error": str(e)})
             finally:

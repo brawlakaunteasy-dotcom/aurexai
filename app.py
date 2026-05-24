@@ -5,7 +5,7 @@ from flask_login import LoginManager, current_user, login_required
 from sqlalchemy import inspect, text
 from config import Config
 from core.db import db
-from core import auth, admin, chat, codex, ai_service
+from core import auth, admin, chat, codex, ai_service, payments
 from core.models import User, SiteSetting
 
 
@@ -19,18 +19,13 @@ def load_user(uid):
 
 
 def _bootstrap_admin(app):
-    """Create default admin if not present."""
     email = app.config["ADMIN_EMAIL"]
     pw = app.config["ADMIN_PASSWORD"]
     user = User.query.filter_by(email=email).first()
     if not user:
         user = User(
-            first_name="Aurex",
-            last_name="Admin",
-            username="owner",
-            email=email,
-            is_admin=True,
-            plan="PLUS",
+            first_name="Aurex", last_name="Admin", username="owner",
+            email=email, is_admin=True, plan="PLUS",
         )
         user.set_password(pw)
         db.session.add(user)
@@ -38,8 +33,7 @@ def _bootstrap_admin(app):
 
 
 def _light_migrations():
-    """Add new columns to existing SQLite DBs without losing data.
-    Idempotent — safe to run on every boot."""
+    """Idempotent migrations for SQLite — safe on every boot."""
     insp = inspect(db.engine)
     with db.engine.begin() as conn:
         if "chats" in insp.get_table_names():
@@ -58,18 +52,25 @@ def _light_migrations():
                 conn.execute(text("ALTER TABLE users ADD COLUMN github_username VARCHAR(80)"))
             if "intro_seen" not in cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN intro_seen BOOLEAN DEFAULT 0"))
+            if "credits_used_today" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN credits_used_today INTEGER DEFAULT 0"))
+            if "credits_window_started_at" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN credits_window_started_at DATETIME"))
         if "messages" in insp.get_table_names():
             cols = {c["name"] for c in insp.get_columns("messages")}
             if "image_url" not in cols:
                 conn.execute(text("ALTER TABLE messages ADD COLUMN image_url VARCHAR(500)"))
+        if "ai_models" in insp.get_table_names():
+            cols = {c["name"] for c in insp.get_columns("ai_models")}
+            if "is_image_gen" not in cols:
+                conn.execute(text("ALTER TABLE ai_models ADD COLUMN is_image_gen BOOLEAN DEFAULT 0"))
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload cap
+    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
-    # Ensure instance/uploads dir exists
     uploads_dir = os.path.join(app.instance_path, "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
 
@@ -80,10 +81,10 @@ def create_app():
     app.register_blueprint(admin.bp)
     app.register_blueprint(chat.bp)
     app.register_blueprint(codex.bp)
+    app.register_blueprint(payments.bp)
 
     @app.context_processor
     def inject_site():
-        # site_name / site_logo can be overridden by admin via SiteSetting
         site_name = app.config["SITE_NAME"]
         site_logo = app.config["SITE_LOGO"]
         try:
@@ -120,23 +121,23 @@ def create_app():
     def site_info():
         n = SiteSetting.query.filter_by(key="site_name").first()
         l = SiteSetting.query.filter_by(key="site_logo").first()
+        card = SiteSetting.query.filter_by(key="payment_card").first()
         return jsonify({
             "ok": True,
             "site_name": (n.value if n and n.value else app.config["SITE_NAME"]),
             "site_logo": (l.value if l and l.value else app.config["SITE_LOGO"]),
             "admin_telegram": app.config["ADMIN_TELEGRAM"],
             "prices": app.config["SUBSCRIPTION_PRICES"],
+            "payment_card": (card.value if card and card.value else app.config["DEFAULT_PAYMENT_CARD"]),
         })
 
     @app.route("/api/site/stats")
     def site_stats():
         from core.models import AiModel
-        users_total = User.query.count()
-        models_total = AiModel.query.filter_by(enabled=True).count()
         return jsonify({
             "ok": True,
-            "users_total": users_total,
-            "models_total": models_total,
+            "users_total": User.query.count(),
+            "models_total": AiModel.query.filter_by(enabled=True).count(),
             "prices": app.config["SUBSCRIPTION_PRICES"],
             "site_name": app.config["SITE_NAME"],
         })

@@ -700,3 +700,203 @@ code { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, m
   .drop-menu { right: 10px; min-width: 200px; }
   .send-btn { width: 40px; height: 40px; }
 }
+
+
+
+/* ============================================================
+   Updates: credit bar, payment modal, payments admin
+   ============================================================ */
+
+/* Credit chip after each AI message */
+.credit-chip {
+  align-self: flex-end;
+  font-size: 11px;
+  color: var(--fg-soft);
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: rgba(167, 139, 250, .08);
+  border: 1px dashed rgba(167, 139, 250, .35);
+}
+
+/* Credit bar (separate from memory bar but identical look) */
+#creditBar { margin-bottom: 4px; }
+#creditFill {
+  background: linear-gradient(90deg, var(--neon-2), var(--accent), var(--neon-3));
+}
+
+/* My-payments page header */
+.my-payments-title { margin-top: 40px; font-size: 22px; }
+
+/* Payment modal */
+.payment-modal {
+  width: min(540px, 100%);
+  padding: 26px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.payment-modal h2 { margin: 0; font-size: 22px; }
+.payment-modal .pay-step {
+  font-size: 14px;
+  color: var(--fg-soft);
+  padding: 6px 0;
+}
+.payment-modal .pay-step b {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--neon-1);
+  font-weight: 700;
+}
+.pay-card {
+  position: relative;
+  padding: 22px 60px 22px 22px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--neon-2), var(--accent));
+  color: white;
+  box-shadow: 0 10px 30px rgba(124, 92, 255, .35);
+}
+.pay-card-label {
+  font-size: 12px;
+  letter-spacing: 1px;
+  opacity: .85;
+  margin-bottom: 6px;
+}
+.pay-card-num {
+  font-size: 22px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+.pay-copy {
+  position: absolute; top: 50%; right: 12px;
+  transform: translateY(-50%);
+  background: rgba(255,255,255,.25);
+  border-color: rgba(255,255,255,.35);
+}
+.pay-amount {
+  font-size: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.pay-amount b { color: var(--neon-3); font-size: 22px; }
+
+.pay-dropzone {
+  margin-top: 12px;
+  padding: 22px;
+  border: 2px dashed rgba(167, 139, 250, .4);
+  border-radius: 16px;
+  background: rgba(167, 139, 250, .05);
+  text-align: center;
+  cursor: pointer;
+  transition: background .2s, border-color .2s;
+}
+.pay-dropzone.over {
+  background: rgba(167, 139, 250, .15);
+  border-color: rgba(167, 139, 250, .8);
+}
+.pay-dz-inner { font-size: 14px; color: var(--fg-soft); }
+.pay-dz-icon { font-size: 36px; margin-bottom: 6px; }
+.pay-dz-pick {
+  background: transparent;
+  border: 0;
+  color: var(--neon-3);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.pay-preview { margin-top: 12px; }
+.pay-preview img {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-stroke);
+}
+.payment-modal textarea {
+  background: rgba(167, 139, 250, .06);
+  color: var(--fg);
+  border: 1px solid var(--glass-stroke);
+  border-radius: 12px;
+  padding: 10px 14px;
+  outline: none;
+  font: inherit;
+  resize: vertical;
+  width: 100%;
+}
+.pay-actions {
+  display: flex; gap: 10px; justify-content: flex-end;
+  margin-top: 8px; flex-wrap: wrap;
+}
+
+/* Admin payments rows */
+.payment-row {
+  display: flex; gap: 14px; align-items: flex-start;
+  padding: 12px;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  background: rgba(167, 139, 250, .04);
+  border: 1px solid var(--glass-stroke);
+}
+.payment-row.status-pending  { border-left: 4px solid #ffb340; }
+.payment-row.status-approved { border-left: 4px solid var(--green); }
+.payment-row.status-rejected { border-left: 4px solid var(--danger); }
+.payment-info { flex: 1; min-width: 0; }
+.payment-thumb {
+  width: 110px; height: 110px;
+  object-fit: cover;
+  border-radius: 12px;
+  cursor: zoom-in;
+  border: 1px solid var(--glass-stroke);
+  flex-shrink: 0;
+}
+.payment-actions {
+  display: flex; flex-direction: column; gap: 6px;
+  flex-shrink: 0;
+}
+.status-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+  background: rgba(167, 139, 250, .15);
+  border: 1px solid rgba(167, 139, 250, .35);
+}
+.status-pill.status-approved {
+  background: rgba(46, 229, 157, .15);
+  border-color: rgba(46, 229, 157, .45);
+  color: var(--green-2);
+}
+.status-pill.status-rejected {
+  background: rgba(255, 93, 108, .15);
+  border-color: rgba(255, 93, 108, .45);
+  color: var(--danger);
+}
+.reject-reason {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 93, 108, .10);
+  border-left: 3px solid var(--danger);
+  font-size: 13px;
+  color: var(--danger);
+}
+
+/* Pending badge in admin nav */
+.pay-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+/* No more sticker animation — keep the class neutral so old data still renders */
+.sticker { display: inline; font-size: inherit; animation: none !important; filter: none; }
+
+@media (max-width: 600px) {
+  .payment-row { flex-direction: column; }
+  .payment-thumb { width: 100%; height: 200px; }
+  .pay-card-num { font-size: 18px; letter-spacing: 1px; }
+}
