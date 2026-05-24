@@ -1,9 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ SITE_NAME }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/intro.css') }}">{% endblock %}
 
 {% block body %}
-<!-- Initial loader (4-stage progress) -->
+<!-- Initial loader (4-stage progress, only on first visit) -->
 <div id="loader" class="loader-overlay">
   <div class="loader-card glass">
     <div class="loader-logo">
@@ -14,48 +13,6 @@
     <div class="loader-percent" id="loaderPercent">0%</div>
     <div class="loader-stage" id="loaderStage">Tayyorlanmoqda...</div>
   </div>
-</div>
-
-<!-- First-run intro (cinematic preview) -->
-<div id="introOverlay" class="intro-overlay" hidden>
-  <div class="intro-bg"></div>
-  <div class="intro-stage" id="introStage">
-    <div class="intro-frame" data-frame="0">
-      <img src="{{ SITE_LOGO }}" class="intro-logo" alt="">
-      <h1 class="intro-title grad">{{ SITE_NAME }}</h1>
-      <p class="intro-sub">Sun'iy intellekt platformasi · Yangi avlod</p>
-    </div>
-    <div class="intro-frame" data-frame="1">
-      <h2 class="intro-h">👥 Foydalanuvchilar</h2>
-      <div class="intro-num" data-num="0" id="introUsers">0</div>
-      <p class="intro-sub">va har kuni o'sib bormoqda</p>
-    </div>
-    <div class="intro-frame" data-frame="2">
-      <h2 class="intro-h">🤖 AI modellar</h2>
-      <div class="intro-num" data-num="0" id="introModels">0</div>
-      <p class="intro-sub">turli modellar — har xil vazifalar uchun</p>
-    </div>
-    <div class="intro-frame" data-frame="3">
-      <h2 class="intro-h">💎 Obunalar</h2>
-      <div class="intro-plans">
-        <div class="intro-plan"><b>ODDIY</b><span>Tekin</span></div>
-        <div class="intro-plan featured"><b>PRO</b><span>30,000 / oy</span></div>
-        <div class="intro-plan"><b>PLUS</b><span>50,000 / oy</span></div>
-      </div>
-    </div>
-    <div class="intro-frame" data-frame="4">
-      <h2 class="intro-h">⚡ Imkoniyatlar</h2>
-      <ul class="intro-feats">
-        <li>🎯 Aqlli chat AI</li>
-        <li>🔮 Collab mode (PLUS)</li>
-        <li>🚀 Codex — loyiha yaratuvchi</li>
-        <li>🌗 Day / Night / Auto rejim</li>
-      </ul>
-    </div>
-  </div>
-  <div class="intro-dots" id="introDots"></div>
-  <button class="intro-skip" id="introSkip">O'tkazib yuborish</button>
-  <button class="neon-btn intro-start" id="introStart">Boshlash &rarr;</button>
 </div>
 
 <!-- Top bar -->
@@ -145,6 +102,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/loader.js') }}"></script>
-<script src="{{ url_for('static', filename='js/intro.js') }}"></script>
 <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 {% endblock %}
