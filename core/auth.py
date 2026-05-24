@@ -54,13 +54,14 @@ def api_register():
     if User.query.filter((User.email == email) | (User.username == username)).first():
         return jsonify({"ok": False, "error": "Bu email yoki username band."}), 400
 
-    user = User(first_name=first, last_name=last, username=username, email=email)
+    user = User(first_name=first, last_name=last, username=username, email=email,
+                intro_seen=False)
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
 
     login_user(user)
-    return jsonify({"ok": True, "user": user.to_dict()})
+    return jsonify({"ok": True, "user": user.to_dict(), "show_intro": True})
 
 
 @bp.route("/api/auth/logout", methods=["POST"])

@@ -1,14 +1,17 @@
-/* 4-stage loader:
-   1) Internet speed test
-   2) Site asset preload
-   3) Device detection (PC / Mobile)
-   4) Final reveal animation                                            */
+/* 4-stage loader — only on FIRST EVER visit to this device.
+   Skipped on subsequent loads (instant). */
 (function () {
   const overlay  = document.getElementById("loader");
   const fill     = document.getElementById("loaderFill");
   const percent  = document.getElementById("loaderPercent");
   const stage    = document.getElementById("loaderStage");
   if (!overlay) return;
+
+  // Skip if already shown once on this device
+  if (localStorage.getItem("aurex-loader-seen") === "1") {
+    overlay.remove();
+    return;
+  }
 
   function setProgress(p, label) {
     p = Math.min(100, Math.max(0, Math.round(p)));
@@ -66,6 +69,7 @@
     await sleep(300);
     overlay.classList.add("done");
     setTimeout(() => overlay.remove(), 600);
+    localStorage.setItem("aurex-loader-seen", "1");
   }
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }

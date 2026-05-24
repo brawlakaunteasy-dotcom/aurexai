@@ -1,17 +1,24 @@
 """Chat routes: list / create / send (real-time SSE streaming) + Collab mode."""
+import base64
 import json
+import mimetypes
+import os
 import queue
 import threading
+import uuid
 from datetime import datetime, timedelta
 from flask import (
     Blueprint, request, jsonify, Response, stream_with_context, abort, current_app,
 )
 from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
 from .db import db
 from .models import Chat, Message, AiModel, User
 from . import ai_service, memory
 
 bp = Blueprint("chat", __name__, url_prefix="/api/chat")
+
+ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 
 
 # --- list / new / get / delete / rename --------------------------------------
@@ -140,6 +147,71 @@ def mark_intro_seen():
     return jsonify({"ok": True})
 
 
+# --- file upload (images) ---------------------------------------------------
+@bp.route("/upload", methods=["POST"])
+@login_required
+def upload_file():
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "Fayl yuborilmadi"}), 400
+    f = request.files["file"]
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Fayl tanlanmagan"}), 400
+
+    ext = ""
+    if "." in f.filename:
+        ext = f.filename.rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_IMAGE_EXT:
+        return jsonify({"ok": False,
+                        "error": f"Faqat rasm fayllari ({', '.join(ALLOWED_IMAGE_EXT)})"}), 400
+
+    f.seek(0, os.SEEK_END)
+    size = f.tell()
+    f.seek(0)
+    if size > 10 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "Fayl 10 MB dan katta"}), 413
+    if not memory.can_write(current_user, size):
+        return jsonify({"ok": False, "error": "Xotira limiti to'lgan"}), 413
+
+    upload_dir = os.path.join(current_app.instance_path, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    fname = f"{uuid.uuid4().hex}.{ext}"
+    fpath = os.path.join(upload_dir, fname)
+    f.save(fpath)
+
+    if not current_user.is_admin:
+        current_user.memory_used = (current_user.memory_used or 0) + size
+        db.session.commit()
+
+    return jsonify({"ok": True, "url": f"/uploads/{fname}", "size": size,
+                    "name": secure_filename(f.filename)})
+
+
+def _build_user_content(text, image_url):
+    """For OpenRouter vision: build content array if image is attached.
+    Returns either a string (plain text) or a list of content parts."""
+    if not image_url:
+        return text or ""
+
+    # Convert local /uploads/... path to data URL for the AI
+    url = image_url
+    if image_url.startswith("/uploads/"):
+        try:
+            fname = image_url[len("/uploads/"):]
+            fpath = os.path.join(current_app.instance_path, "uploads", fname)
+            with open(fpath, "rb") as fh:
+                data = fh.read()
+            mime = mimetypes.guess_type(fname)[0] or "image/png"
+            b64 = base64.b64encode(data).decode("ascii")
+            url = f"data:{mime};base64,{b64}"
+        except Exception:
+            pass  # fall back to relative URL (may fail on AI side)
+
+    return [
+        {"type": "text", "text": text or ""},
+        {"type": "image_url", "image_url": {"url": url}},
+    ]
+
+
 # --- send (real streaming via background thread + queue) --------------------
 @bp.route("/<int:chat_id>/send", methods=["POST"])
 @login_required
@@ -151,7 +223,8 @@ def send_message(chat_id):
     data = request.get_json(force=True)
     content = (data.get("content") or "").strip()
     requested_model_id = data.get("model_id")
-    if not content:
+    image_url = (data.get("image_url") or "").strip() or None
+    if not content and not image_url:
         return jsonify({"ok": False, "error": "Bo'sh xabar yuborib bo'lmaydi."}), 400
 
     # Choose model A (locked to chat once set)
@@ -187,7 +260,8 @@ def send_message(chat_id):
         }), 413
 
     # Save user message
-    user_msg = Message(chat_id=chat.id, role="user", content=content, model=model_a.model_id)
+    user_msg = Message(chat_id=chat.id, role="user", content=content,
+                       model=model_a.model_id, image_url=image_url)
     db.session.add(user_msg)
     db.session.commit()
     memory.record(current_user, user_msg)
@@ -202,10 +276,11 @@ def send_message(chat_id):
     msg_list = [{"role": "system", "content": sys_prompt}]
     for m in history[-20:]:
         if m.role in ("user", "assistant"):
-            msg_list.append({"role": m.role, "content": m.content})
+            ct = _build_user_content(m.content, m.image_url) if m.image_url else m.content
+            msg_list.append({"role": m.role, "content": ct})
 
     if chat.title == "Yangi suhbat":
-        chat.title = content[:60]
+        chat.title = (content or "Rasm yuklandi")[:60]
     db.session.commit()
 
     app = current_app._get_current_object()

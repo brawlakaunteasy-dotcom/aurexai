@@ -104,8 +104,11 @@
     </div>
 
     <form class="composer glass" id="composer">
+      <div class="attach-preview" id="attachPreview" hidden></div>
       <textarea id="composerInput" placeholder="Bugun nimaga yordam beray?" rows="1"></textarea>
       <div class="composer-row">
+        <button type="button" class="icon-btn attach-btn" id="attachBtn" title="Rasm yuklash">📎</button>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
         <select id="modelSelect" class="glass select"></select>
         <span class="collab-badge" id="collabBadge" hidden>🔮 Collab</span>
         <button type="submit" class="neon-btn send-btn" title="Yuborish" aria-label="Yuborish">

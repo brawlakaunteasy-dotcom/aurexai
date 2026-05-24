@@ -13,6 +13,7 @@
   let models = [];
   let plan = "ODDIY";
   let collabPending = null; // {a, b} when user clicks "Suhbat boshlash" in collab modal
+  let pendingImage = null;  // {url, name, size} after upload, before send
 
   const $ = (s) => document.querySelector(s);
   const messagesEl = $("#messages");
@@ -199,8 +200,20 @@
       (opts.label ? `<div class="msg-label">${escapeHtml(opts.label)}</div>` : "") +
       `<div class="bubble"></div>`;
     const bubble = wrap.querySelector(".bubble");
-    if (role === "assistant") renderWithStickers(bubble, content);
-    else bubble.textContent = content;
+    if (opts.image_url) {
+      const img = document.createElement("img");
+      img.className = "msg-image";
+      img.src = opts.image_url;
+      img.alt = "rasm";
+      img.addEventListener("click", () => window.open(opts.image_url, "_blank"));
+      bubble.appendChild(img);
+    }
+    if (content) {
+      const txt = document.createElement("span");
+      if (role === "assistant") renderWithStickers(txt, content);
+      else txt.textContent = content;
+      bubble.appendChild(txt);
+    }
     messagesEl.appendChild(wrap);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return bubble;
@@ -237,7 +250,7 @@
       el.classList.toggle("active", parseInt(el.dataset.id) === id),
     );
     messagesEl.innerHTML = "";
-    j.messages.forEach((m) => appendMessage(m.role, m.content));
+    j.messages.forEach((m) => appendMessage(m.role, m.content, { image_url: m.image_url }));
     if (!j.messages.length) renderHero();
     applyModelLock();
   }
@@ -269,14 +282,14 @@
   }
 
   // -------- send + stream --------------------------------------------------
-  async function streamSend(text, modelId) {
+  async function streamSend(text, modelId, imageUrl) {
     let chat;
     try {
       chat = await ensureChat();
     } catch (_) {
       return;
     }
-    appendMessage("user", text);
+    appendMessage("user", text, { image_url: imageUrl });
 
     // "thinking" placeholder (replaced by first bubble when tokens arrive)
     let thinkingEl = appendThinking();
@@ -330,7 +343,7 @@
     const r = await fetch(`/api/chat/${chat.id}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: text, model_id: modelId }),
+      body: JSON.stringify({ content: text, model_id: modelId, image_url: imageUrl || null }),
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
@@ -393,14 +406,16 @@
   composer.addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !pendingImage) return;
     if (!me) {
       openAuthModal("login");
       return;
     }
+    const img = pendingImage ? pendingImage.url : null;
     input.value = "";
     autosize();
-    streamSend(text, parseInt(modelSel.value) || null);
+    clearPendingImage();
+    streamSend(text, parseInt(modelSel.value) || null, img);
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -511,6 +526,67 @@
     sidebar.classList.contains("open") ? closeDrawer() : openDrawer(),
   );
   drawerBackdrop?.addEventListener("click", closeDrawer);
+
+  // -------- file / image upload -------------------------------------------
+  const fileBtn = $("#attachBtn");
+  const fileInput = $("#fileInput");
+  const previewEl = $("#attachPreview");
+
+  fileBtn?.addEventListener("click", () => {
+    if (!me) return openAuthModal("login");
+    fileInput.click();
+  });
+
+  fileInput?.addEventListener("change", async () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+    fileInput.value = "";
+    if (f.size > 10 * 1024 * 1024) {
+      alert("Fayl 10 MB dan katta");
+      return;
+    }
+    showUploading(f.name);
+    const fd = new FormData();
+    fd.append("file", f);
+    try {
+      const r = await fetch("/api/chat/upload", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!j.ok) {
+        clearPendingImage();
+        alert(j.error || "Yuklashda xato");
+        return;
+      }
+      pendingImage = { url: j.url, name: j.name || f.name, size: j.size };
+      renderPreview();
+      await loadMe();
+    } catch (e) {
+      clearPendingImage();
+      alert("Yuklashda xato: " + e);
+    }
+  });
+
+  function showUploading(name) {
+    previewEl.innerHTML = `<div class="attach-chip uploading">⏳ ${escapeHtml(name)}...</div>`;
+    previewEl.hidden = false;
+  }
+  function renderPreview() {
+    if (!pendingImage) return clearPendingImage();
+    previewEl.innerHTML = "";
+    const chip = document.createElement("div");
+    chip.className = "attach-chip";
+    chip.innerHTML = `
+      <img src="${pendingImage.url}" alt="">
+      <span class="attach-name">${escapeHtml(pendingImage.name)}</span>
+      <button type="button" class="attach-x" title="O'chirish">×</button>`;
+    chip.querySelector(".attach-x").addEventListener("click", clearPendingImage);
+    previewEl.appendChild(chip);
+    previewEl.hidden = false;
+  }
+  function clearPendingImage() {
+    pendingImage = null;
+    previewEl.innerHTML = "";
+    previewEl.hidden = true;
+  }
 
   loadMe();
 })();

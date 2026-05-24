@@ -1,5 +1,6 @@
 """AurexAi - Flask entrypoint."""
-from flask import Flask, render_template, jsonify, request
+import os
+from flask import Flask, render_template, jsonify, request, send_from_directory, abort
 from flask_login import LoginManager, current_user, login_required
 from sqlalchemy import inspect, text
 from config import Config
@@ -57,11 +58,20 @@ def _light_migrations():
                 conn.execute(text("ALTER TABLE users ADD COLUMN github_username VARCHAR(80)"))
             if "intro_seen" not in cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN intro_seen BOOLEAN DEFAULT 0"))
+        if "messages" in insp.get_table_names():
+            cols = {c["name"] for c in insp.get_columns("messages")}
+            if "image_url" not in cols:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN image_url VARCHAR(500)"))
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload cap
+
+    # Ensure instance/uploads dir exists
+    uploads_dir = os.path.join(app.instance_path, "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
 
     db.init_app(app)
     login_manager.init_app(app)
@@ -98,6 +108,13 @@ def create_app():
     @app.route("/catalog")
     def catalog():
         return render_template("catalog.html")
+
+    @app.route("/uploads/<path:fname>")
+    @login_required
+    def serve_upload(fname):
+        if "/" in fname or "\\" in fname or fname.startswith(".."):
+            abort(404)
+        return send_from_directory(uploads_dir, fname)
 
     @app.route("/api/site")
     def site_info():

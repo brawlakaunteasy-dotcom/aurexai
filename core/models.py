@@ -99,6 +99,7 @@ class Message(db.Model):
     role = db.Column(db.String(16))          # user / assistant / system
     content = db.Column(db.Text)
     model = db.Column(db.String(120))
+    image_url = db.Column(db.String(500), nullable=True)
     size_bytes = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     expires_at = db.Column(db.DateTime, nullable=True)   # AI memory expiry (3 days default)
@@ -109,6 +110,7 @@ class Message(db.Model):
             "role": self.role,
             "content": self.content,
             "model": self.model,
+            "image_url": self.image_url,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

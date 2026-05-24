@@ -1,26 +1,20 @@
-/* Cinematic first-run intro:
-   - 5 frames auto-advance every ~3.5s (or user can swipe / dot-click)
-   - Animated counters on user/model frames
-   - Bottom-right "Boshlash" button enabled after last frame
-   - On dismiss: localStorage flag + POST /api/chat/intro-seen for logged-in user
+/* Cinematic intro:
+   - Shown ONLY for users who just registered (intro_seen=false on user)
+   - Once dismissed -> intro_seen=true on server, never shown again.
 */
 (function () {
-  const KEY = "aurex-intro-seen";
-
   async function shouldShow() {
-    if (localStorage.getItem(KEY) === "1") return false;
     try {
-      const me = await fetch("/api/auth/me").then((r) => r.json());
-      if (me.authenticated && me.user && me.user.intro_seen) {
-        localStorage.setItem(KEY, "1");
-        return false;
-      }
-    } catch (_) {}
-    return true;
+      const r = await fetch("/api/auth/me").then((x) => x.json());
+      if (!r.authenticated) return false;
+      // Only when server says intro hasn't been marked yet.
+      return r.user && r.user.intro_seen === false;
+    } catch (_) {
+      return false;
+    }
   }
 
   function dismiss() {
-    localStorage.setItem(KEY, "1");
     fetch("/api/chat/intro-seen", { method: "POST" }).catch(() => {});
     const el = document.getElementById("introOverlay");
     if (!el) return;
